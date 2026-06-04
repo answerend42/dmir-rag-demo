@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """! @file run_eval.py
-@brief 运行 Issue #7 阶段 1 的课程 QA 离线评测主流程。
+@brief 运行 Issue #7 课程 QA 离线评测主流程。
 @details 本阶段只读取 RAG 可见的 course_qa_public 数据，重新执行 fake RAG，
-并输出每个问题、每个模式对应的 RagRequest 与 RagAnswer。评测专用 labels
-参数仅作为后续阶段预留，本阶段不会读取 answer_quality。
+并输出每个问题、每个模式对应的 RagRequest、RagAnswer 与评测指标。评测
+专用 labels 只会在所有 RagAnswer 生成完成后读取，不会进入请求、检索命中
+或 trace。
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -36,7 +38,7 @@ DEFAULT_OUTPUT_DIR = "eval/results"
 
 
 def parse_args() -> argparse.Namespace:
-    """! @brief 解析阶段 1 离线评测 CLI 参数。
+    """! @brief 解析课程 QA 离线评测 CLI 参数。
     @return argparse 命名空间。
     """
     parser = argparse.ArgumentParser(description="运行课程 QA 离线 fake RAG 评测主流程。")
@@ -50,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--labels",
         default=DEFAULT_LABELS,
-        help="评测专用 labels 路径；阶段 1 不读取，仅保留参数兼容性。",
+        help="评测专用 labels 路径；只在所有回答生成完成后读取。",
     )
     parser.add_argument(
         "--modes",
@@ -131,10 +133,10 @@ def collect_questions(candidates: Iterable[CourseQaCandidate], limit: int | None
 
 
 def run_course_qa(args: argparse.Namespace, modes: list[RagMode]) -> dict[str, Any]:
-    """! @brief 使用全量课程 QA 候选答案运行阶段 1 fake RAG。
+    """! @brief 使用全量课程 QA 候选答案运行 fake RAG 并计算指标。
     @param args CLI 参数。
     @param modes 要运行的 RAG 模式列表。
-    @return 可序列化的原始回答记录。
+    @return 可序列化的原始回答记录和评测指标。
     """
     all_candidates = load_course_qa_candidates(dataset_path=args.dataset)
     questions = collect_questions(all_candidates, limit=args.limit)
@@ -182,12 +184,16 @@ def run_course_qa(args: argparse.Namespace, modes: list[RagMode]) -> dict[str, A
                 }
             )
 
+    quality_labels = load_course_qa_quality_label_map(args.labels)
+    metrics_records = [compute_course_qa_metrics(record, quality_labels) for record in records]
+
     return {
-        "stage": "issue_07_phase_1_course_qa_raw_answers",
+        "stage": "issue_07_phase_2_course_qa_metrics",
         "dataset_type": "course_qa",
         "dataset_path": args.dataset,
-        "labels_path_configured_but_not_read": args.labels,
-        "labels_read": False,
+        "labels_path": args.labels,
+        "labels_read_after_generation": True,
+        "quality_label_count": len(quality_labels),
         "output_dir_reserved": args.output_dir,
         "modes": [mode.value for mode in modes],
         "provider": args.provider,
@@ -197,6 +203,7 @@ def run_course_qa(args: argparse.Namespace, modes: list[RagMode]) -> dict[str, A
         "record_count": len(records),
         "dataset_summary": dataset_summary,
         "records": records,
+        "metrics_records": metrics_records,
     }
 
 
@@ -204,6 +211,152 @@ def _assert_rag_answer(answer: RagAnswer) -> None:
     """! @brief 保护阶段 1 输出必须保持 RagAnswer 契约对象。"""
     if not isinstance(answer, RagAnswer):
         raise TypeError("FakeRagPipeline must return RagAnswer")
+
+
+def load_course_qa_quality_label_map(labels_path: str | Path) -> dict[tuple[str, int, str], int]:
+    """! @brief 读取评测专用质量标签并构造复合键映射。
+    @param labels_path 隐藏 labels JSON 文件路径。
+    @return (category, qa_id, answer_id) 到质量档次的映射。
+    @throws ValueError 当标签重复、档次越界或 answer_id 非唯一时抛出。
+    @details 该函数只能在 RAG 生成完成后调用；返回值仅供指标计算使用。
+    """
+    raw_data = json.loads(Path(labels_path).read_text(encoding="utf-8"))
+    labels: dict[tuple[str, int, str], int] = {}
+    seen_answer_ids: set[str] = set()
+
+    for row in raw_data.get("labels", []):
+        category = str(row["category"])
+        qa_id = int(row["qa_id"])
+        answer_id = str(row["answer_id"])
+        quality = int(row["answer_quality"])
+        key = (category, qa_id, answer_id)
+
+        if key in labels:
+            raise ValueError(f"重复的课程 QA 标签复合键：{key}")
+        if answer_id in seen_answer_ids:
+            raise ValueError(f"answer_id 不是全局唯一：{answer_id}")
+        if quality < 0 or quality > 9:
+            raise ValueError(f"质量档次越界：{quality}")
+
+        labels[key] = quality
+        seen_answer_ids.add(answer_id)
+
+    return labels
+
+
+def compute_course_qa_metrics(
+    record: dict[str, Any],
+    quality_labels: dict[tuple[str, int, str], int],
+) -> dict[str, Any]:
+    """! @brief 从单条 RagAnswer 与生成后 labels 计算课程 QA 指标。
+    @param record 单个问题和模式的原始评测记录。
+    @param quality_labels 复合键质量标签映射。
+    @return 单条扁平指标记录。
+    """
+    answer = record["answer"]
+    hits = answer.get("retrieved_hits", [])
+    citations = answer.get("citations", [])
+    current_key = (str(record["category"]), int(record["qa_id"]))
+    hit_by_chunk_id = {str(hit.get("chunk_id")): hit for hit in hits}
+    same_question_hits = [hit for hit in hits if hit_belongs_to_question(hit, current_key)]
+    cross_question_hits = [hit for hit in hits if not hit_belongs_to_question(hit, current_key)]
+
+    same_hit_qualities = [lookup_hit_quality(hit, quality_labels) for hit in same_question_hits]
+    quality_distribution = Counter(str(quality) for quality in same_hit_qualities)
+    top_hit = min(same_question_hits, key=lambda hit: int(hit.get("rank", 10**9)), default=None)
+    top_hit_answer_id = get_hit_answer_id(top_hit) if top_hit else None
+    top_hit_quality = lookup_hit_quality(top_hit, quality_labels) if top_hit else None
+
+    return {
+        "qa_id": record["qa_id"],
+        "category": record["category"],
+        "question": record["question"],
+        "mode": record["mode"],
+        "provider": record["provider"],
+        "model": record["model"],
+        "latency_ms": sum(float(stage.get("latency_ms", 0.0)) for stage in answer.get("trace", [])),
+        "citation_hit": compute_citation_hit(citations, hit_by_chunk_id, current_key),
+        "groundedness": compute_groundedness(citations, hits, hit_by_chunk_id, current_key),
+        "label_distribution": dict(sorted(quality_distribution.items(), key=lambda item: int(item[0]))),
+        "retrieved_hit_count": len(hits),
+        "same_question_hit_count": len(same_question_hits),
+        "cross_question_hit_count": len(cross_question_hits),
+        "citation_count": len(citations),
+        "top_hit_answer_id": top_hit_answer_id,
+        "top_hit_quality": top_hit_quality,
+        "avg_hit_quality": average(same_hit_qualities),
+        "warning_count": len(answer.get("warnings", [])),
+    }
+
+
+def hit_belongs_to_question(hit: dict[str, Any], question_key: tuple[str, int]) -> bool:
+    """! @brief 判断检索命中是否属于当前问题。"""
+    metadata = hit.get("metadata", {})
+    return (str(metadata.get("category")), int(metadata.get("qa_id", -1))) == question_key
+
+
+def compute_citation_hit(
+    citations: list[dict[str, Any]],
+    hit_by_chunk_id: dict[str, dict[str, Any]],
+    question_key: tuple[str, int],
+) -> int:
+    """! @brief 判断引用是否命中当前问题候选答案。"""
+    for citation in citations:
+        hit = hit_by_chunk_id.get(str(citation.get("chunk_id")))
+        if hit and hit_belongs_to_question(hit, question_key):
+            return 1
+    return 0
+
+
+def compute_groundedness(
+    citations: list[dict[str, Any]],
+    hits: list[dict[str, Any]],
+    hit_by_chunk_id: dict[str, dict[str, Any]],
+    question_key: tuple[str, int],
+) -> float:
+    """! @brief 计算答案引用对当前问题证据的接地程度。"""
+    if not hits and not citations:
+        return 0.0
+    if hits and not citations:
+        return 0.3
+
+    on_question_citations = 0
+    for citation in citations:
+        quote = str(citation.get("quote", ""))
+        is_traceable = bool(quote) and any(quote in str(hit.get("text", "")) for hit in hits)
+        hit = hit_by_chunk_id.get(str(citation.get("chunk_id")))
+        if is_traceable and hit and hit_belongs_to_question(hit, question_key):
+            on_question_citations += 1
+
+    return on_question_citations / len(citations) if citations else 0.0
+
+
+def lookup_hit_quality(hit: dict[str, Any], quality_labels: dict[tuple[str, int, str], int]) -> int:
+    """! @brief 用复合键查找同题命中的隐藏质量档次。"""
+    metadata = hit.get("metadata", {})
+    key = (
+        str(metadata.get("category")),
+        int(metadata.get("qa_id", -1)),
+        get_hit_answer_id(hit),
+    )
+    if key not in quality_labels:
+        raise ValueError(f"检索命中缺少评测标签：{key}")
+    return quality_labels[key]
+
+
+def get_hit_answer_id(hit: dict[str, Any] | None) -> str | None:
+    """! @brief 从检索命中 metadata 中取 answer_id。"""
+    if not hit:
+        return None
+    answer_id = hit.get("metadata", {}).get("answer_id")
+    return str(answer_id) if answer_id is not None else None
+
+
+def average(values: list[int]) -> float | None:
+    """! @brief 计算整数列表均值；空列表返回 None。"""
+    if not values:
+        return None
+    return sum(values) / len(values)
 
 
 def sanitize_for_report(value: Any) -> Any:
