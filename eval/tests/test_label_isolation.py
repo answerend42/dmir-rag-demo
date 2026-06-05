@@ -10,6 +10,8 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -28,6 +30,13 @@ from run_eval import (  # noqa: E402
 
 
 FORBIDDEN_LABEL_KEY = "answer_quality"
+PATH_FIELD_MARKERS = ("path", "file", "filename", "filepath")
+
+
+def test_parse_modes_rejects_duplicate_modes():
+    """! @brief 重复 RAG 模式必须报错，避免逐条记录与模式汇总数量不一致。"""
+    with pytest.raises(ValueError, match="重复的 RAG 模式：llm_only"):
+        parse_modes("llm_only,llm_only")
 
 
 def test_small_fake_eval_keeps_answer_quality_out_of_raw_outputs(tmp_path):
@@ -52,6 +61,29 @@ def test_small_fake_eval_keeps_answer_quality_out_of_raw_outputs(tmp_path):
     assert not _contains_absolute_path(raw_answers_json)
 
 
+def test_absolute_path_checker_only_flags_repo_file_fields():
+    """! @brief 绝对路径检查只关注项目文件字段，避免误伤普通文本路径。"""
+    payload = {
+        "answer_markdown": "接口路径 /rag/answer 不应被当作文件路径。",
+        "route": "/api/rag/answer",
+        "source": "/paper/section/1",
+        "dataset_path": str(REPO_ROOT / "sample_data" / "course_qa_public.json"),
+    }
+
+    assert _contains_absolute_path(payload)
+
+
+def test_absolute_path_checker_ignores_non_file_absolute_strings():
+    """! @brief 非路径字段中的斜杠字符串不应触发绝对文件路径告警。"""
+    payload = {
+        "answer_markdown": "模型文本里可能包含 /tmp/example 或 /api/rag/answer。",
+        "route": "/api/rag/answer",
+        "source": "/paper/section/1",
+    }
+
+    assert not _contains_absolute_path(payload)
+
+
 def _small_eval_args(output_dir: Path) -> Namespace:
     """! @brief 构造 limit=5 的课程 QA fake 评测参数。"""
     return Namespace(
@@ -65,12 +97,28 @@ def _small_eval_args(output_dir: Path) -> Namespace:
     )
 
 
-def _contains_absolute_path(value: Any) -> bool:
-    """! @brief 递归判断 JSON 结构中是否包含绝对路径字符串。"""
+def _contains_absolute_path(value: Any, key_context: str = "") -> bool:
+    """! @brief 递归判断疑似文件字段中是否包含本项目绝对路径。"""
     if isinstance(value, dict):
-        return any(_contains_absolute_path(item) for item in value.values())
+        return any(_contains_absolute_path(item, str(key)) for key, item in value.items())
     if isinstance(value, list):
-        return any(_contains_absolute_path(item) for item in value)
-    if isinstance(value, str):
-        return Path(value).is_absolute()
+        return any(_contains_absolute_path(item, key_context) for item in value)
+    if isinstance(value, str) and _is_path_field(key_context):
+        path = Path(value)
+        return path.is_absolute() and _is_under_repo_root(path)
     return False
+
+
+def _is_path_field(key_context: str) -> bool:
+    """! @brief 判断字段名是否像文件路径字段。"""
+    normalized = key_context.lower()
+    return any(marker in normalized for marker in PATH_FIELD_MARKERS)
+
+
+def _is_under_repo_root(path: Path) -> bool:
+    """! @brief 判断绝对路径是否指向当前项目目录。"""
+    try:
+        path.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        return False
+    return True

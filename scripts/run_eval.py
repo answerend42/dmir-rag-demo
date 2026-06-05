@@ -121,14 +121,19 @@ def parse_modes(raw_modes: str) -> list[RagMode]:
         return [RagMode.LLM_ONLY, RagMode.BASIC_RAG, RagMode.OPTIMIZED_RAG]
 
     modes: list[RagMode] = []
+    seen_modes: set[RagMode] = set()
     for value in (part.strip() for part in raw_modes.split(",")):
         if not value:
             continue
         try:
-            modes.append(RagMode(value))
+            mode = RagMode(value)
         except ValueError as exc:
             valid = ", ".join(mode.value for mode in RagMode)
             raise ValueError(f"不支持的 RAG 模式：{value}。可选：all, {valid}") from exc
+        if mode in seen_modes:
+            raise ValueError(f"重复的 RAG 模式：{mode.value}")
+        seen_modes.add(mode)
+        modes.append(mode)
     if not modes:
         raise ValueError("--modes 不能为空。")
     return modes
