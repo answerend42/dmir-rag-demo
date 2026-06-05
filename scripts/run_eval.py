@@ -36,6 +36,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = "sample_data/course_qa_public.json"
 DEFAULT_LABELS = "eval/labels/course_qa_quality_labels.json"
 DEFAULT_OUTPUT_DIR = "eval/results"
+COURSE_QA_DEMO_QUESTIONS = [
+    "什么是自然语言处理？",
+    "监督学习和无监督学习有什么区别？",
+    "什么是激活函数？为什么神经网络需要它？",
+    "哈希表解决冲突的常用方法有哪些？各自适用场景？",
+    "为什么析构函数通常要定义为虚函数？",
+]
 COURSE_QA_CSV_COLUMNS = [
     "qa_id",
     "category",
@@ -223,6 +230,7 @@ def run_course_qa(args: argparse.Namespace, modes: list[RagMode]) -> dict[str, A
         "question_count": len(questions),
         "record_count": len(records),
         "dataset_summary": dataset_summary,
+        "demo_questions": select_demo_questions(all_candidates),
         "records": records,
         "metrics_records": metrics_records,
         "summary_by_mode": summarize_metrics_by_mode(metrics_records, modes),
@@ -511,6 +519,20 @@ def build_markdown_report(result: dict[str, Any]) -> str:
         f"- 评测问题数：{result['question_count']}",
         f"- 原始回答记录数：{result['record_count']}",
         "",
+        "## 数据隔离说明",
+        "",
+        f"- RAG 可见输入：`{result['dataset_path']}`。",
+        f"- 评测专用隐藏标签：`{result['labels_path']}`。",
+        "- `answer_quality` 只在所有 `RagAnswer` 生成完成后由评测脚本读取。",
+        "- `answer_quality` 不进入 RAG 索引、LLM prompt、trace、retrieved hits 或前端展示。",
+        "- `course_qa_raw_answers.json` 保存的是请求和 `RagAnswer` 原始输出，不包含隐藏质量档次。",
+        "",
+        "## 前端展示边界",
+        "",
+        "- 前端只消费 `RagAnswer` schema，不展示 `answer_quality`，也不假设后端会返回质量档次。",
+        "- `label_distribution`、`top_hit_quality`、`avg_hit_quality` 属于评测派生字段，只用于本报告、CSV 和 metrics JSON。",
+        "- 评测产物服务于报告和最终整合分析；课程 QA 与论文 RAG 的前端展示继续以 `RagAnswer` 为唯一契约。",
+        "",
         "## 指标定义",
         "",
         "- `latency_ms`：该条回答所有 trace 阶段耗时之和。",
@@ -550,7 +572,7 @@ def build_markdown_report(result: dict[str, Any]) -> str:
             "",
             "## 现场展示问题",
             "",
-            *[f"{index}. {question}" for index, question in enumerate(select_demo_questions(result["metrics_records"]), start=1)],
+            *[f"{index}. {question}" for index, question in enumerate(result.get("demo_questions") or COURSE_QA_DEMO_QUESTIONS, start=1)],
             "",
             "## 输出文件",
             "",
@@ -571,19 +593,23 @@ def format_markdown_number(value: float | None) -> str:
     return f"{value:.4f}"
 
 
-def select_demo_questions(metrics_records: list[dict[str, Any]], max_questions: int = 5) -> list[str]:
-    """! @brief 从当前评测记录中选取前五个不重复展示问题。"""
-    questions: list[str] = []
-    seen: set[tuple[str, int]] = set()
-    for record in metrics_records:
-        key = (record["category"], int(record["qa_id"]))
-        if key in seen:
-            continue
-        seen.add(key)
-        questions.append(str(record["question"]))
-        if len(questions) >= max_questions:
+def select_demo_questions(candidates: Iterable[CourseQaCandidate], max_questions: int = 5) -> list[str]:
+    """! @brief 从公开数据中选取固定现场展示问题。
+    @param candidates 不含质量档次的课程 QA 候选答案。
+    @param max_questions 返回的展示问题数量。
+    @return 优先使用阶段 4 指定的固定问题，缺失时用公开数据顺序补足。
+    """
+    candidate_list = list(candidates)
+    available_questions = {candidate.question for candidate in candidate_list}
+    selected = [question for question in COURSE_QA_DEMO_QUESTIONS if question in available_questions]
+
+    for candidate in candidate_list:
+        if len(selected) >= max_questions:
             break
-    return questions
+        if candidate.question not in selected:
+            selected.append(candidate.question)
+
+    return selected[:max_questions]
 
 
 def sanitize_for_report(value: Any) -> Any:
