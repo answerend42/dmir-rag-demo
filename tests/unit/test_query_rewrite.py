@@ -19,3 +19,11 @@ def test_rewrite_query_expands_definition_question_in_optimized_mode():
     assert result.was_rewritten is True
     assert "自然语言处理" in result.rewritten_query
     assert "定义" in result.rewritten_query
+
+
+def test_rewrite_query_handles_ascii_question_mark():
+    """! @brief optimized 模式应识别 ASCII 问号并扩展定义型问题。"""
+    result = rewrite_query("什么是自然语言处理?", RagMode.OPTIMIZED_RAG)
+    assert result.was_rewritten is True
+    assert "自然语言处理" in result.rewritten_query
+    assert "定义" in result.rewritten_query

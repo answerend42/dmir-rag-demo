@@ -43,6 +43,7 @@ def test_qwen_api_generator_uses_mock_client_for_basic_rag():
     assert len(answer.citations) == 1
     assert answer.citations[0].chunk_id == "chunk-1"
     assert answer.retrieved_hits
+    assert answer.metadata["generator"] == "qwen-api-generator"
     assert any(stage.stage_name == "generate" for stage in answer.trace)
 
 
@@ -103,6 +104,7 @@ def test_qwen_local_generator_uses_injected_generate_text():
 
     assert "本地回答" in answer.answer_markdown
     assert answer.metadata["provider"] == "qwen_local"
+    assert answer.metadata["generator"] == "qwen-local-generator"
 
 
 def test_build_qwen_api_complete_fn_requires_api_key_without_client():

@@ -69,16 +69,18 @@ class BaseQwenGenerator:
                 citations=[],
                 warnings=warnings,
                 traces=traces,
+                generator_name=self.name,
             )
 
         decision = evaluate_evidence(contexts, request.rag_mode, self.min_score)
         if decision.should_refuse:
+            start = perf_counter()
             answer_markdown, refusal_warnings = build_refusal_answer(decision.reason)
             warnings.extend(refusal_warnings)
             traces.append(
                 self._trace(
                     "generate",
-                    perf_counter(),
+                    start,
                     {"query": request.query, "context_count": len(contexts), "refused": True},
                     {"reason": decision.reason},
                 )
@@ -90,6 +92,7 @@ class BaseQwenGenerator:
                 citations=[],
                 warnings=warnings,
                 traces=traces,
+                generator_name=self.name,
             )
 
         if request.rag_mode == RagMode.OPTIMIZED_RAG:
@@ -148,6 +151,7 @@ class BaseQwenGenerator:
             citations=citations,
             warnings=warnings,
             traces=traces,
+            generator_name=self.name,
         )
 
     @staticmethod
@@ -159,6 +163,7 @@ class BaseQwenGenerator:
         citations: list,
         warnings: list[str],
         traces: list[StageTrace],
+        generator_name: str,
     ) -> RagAnswer:
         """! @brief 组装最终 RagAnswer。"""
         return RagAnswer(
@@ -168,7 +173,7 @@ class BaseQwenGenerator:
             warnings=warnings,
             trace=traces,
             metadata={
-                "generator": request.model or "qwen-generator",
+                "generator": generator_name,
                 "provider": request.provider,
                 "model": request.model,
                 "rag_mode": request.rag_mode.value,

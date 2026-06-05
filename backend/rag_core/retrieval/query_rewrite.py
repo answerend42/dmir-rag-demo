@@ -30,6 +30,8 @@ def rewrite_query(query: str, rag_mode: RagMode) -> QueryRewriteResult:
     @return rewrite 结果，包含是否发生改写及说明。
     """
     normalized = _WHITESPACE_PATTERN.sub(" ", query.strip())
+    if normalized.endswith("?"):
+        normalized = normalized[:-1] + "？"
     if rag_mode != RagMode.OPTIMIZED_RAG:
         return QueryRewriteResult(
             original_query=query,
