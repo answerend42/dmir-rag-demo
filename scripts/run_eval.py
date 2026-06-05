@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from collections import Counter
@@ -35,6 +36,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = "sample_data/course_qa_public.json"
 DEFAULT_LABELS = "eval/labels/course_qa_quality_labels.json"
 DEFAULT_OUTPUT_DIR = "eval/results"
+COURSE_QA_CSV_COLUMNS = [
+    "qa_id",
+    "category",
+    "question",
+    "mode",
+    "provider",
+    "model",
+    "latency_ms",
+    "citation_hit",
+    "groundedness",
+    "label_distribution",
+    "retrieved_hit_count",
+    "same_question_hit_count",
+    "cross_question_hit_count",
+    "citation_count",
+    "top_hit_answer_id",
+    "top_hit_quality",
+    "avg_hit_quality",
+    "warning_count",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,7 +67,7 @@ def parse_args() -> argparse.Namespace:
         "--dataset-type",
         choices=["course_qa", "paper"],
         default="course_qa",
-        help="数据集类型；阶段 1 仅实现 course_qa，paper 为后续阶段预留。",
+        help="数据集类型；当前仅实现 course_qa，paper 为后续阶段预留。",
     )
     parser.add_argument("--dataset", default=DEFAULT_DATASET, help="课程 QA 公开输入路径。")
     parser.add_argument(
@@ -59,22 +80,22 @@ def parse_args() -> argparse.Namespace:
         default="all",
         help="要运行的 RAG 模式。可填 all，或用逗号分隔：llm_only,basic_rag,optimized_rag。",
     )
-    parser.add_argument("--provider", default="mock", help="阶段 1 只支持 mock。")
-    parser.add_argument("--model", default="mock-generator", help="阶段 1 只支持 mock-generator。")
+    parser.add_argument("--provider", default="mock", help="当前只支持 mock。")
+    parser.add_argument("--model", default="mock-generator", help="当前只支持 mock-generator。")
     parser.add_argument("--top-k", type=int, default=3, help="检索返回的 top-k 数量。")
     parser.add_argument("--limit", type=int, default=None, help="最多评测的问题数；不影响全量候选索引。")
     parser.add_argument(
         "--output-dir",
         default=DEFAULT_OUTPUT_DIR,
-        help="报告输出目录；阶段 1 不写文件，阶段 3 起使用。",
+        help="JSON、CSV 与 Markdown 报告输出目录。",
     )
     parser.add_argument("--pretty", action="store_true", help="格式化输出 JSON。")
     args = parser.parse_args()
 
     if args.dataset_type != "course_qa":
-        parser.error("阶段 1 仅支持 --dataset-type course_qa；paper 将在后续阶段实现。")
+        parser.error("当前仅支持 --dataset-type course_qa；paper 将在后续阶段实现。")
     if args.provider != "mock" or args.model != "mock-generator":
-        parser.error("阶段 1 只运行 fake pipeline，请使用 --provider mock --model mock-generator。")
+        parser.error("当前只运行 fake pipeline，请使用 --provider mock --model mock-generator。")
     if args.top_k <= 0:
         parser.error("--top-k 必须为正整数。")
     if args.limit is not None and args.limit <= 0:
@@ -188,7 +209,7 @@ def run_course_qa(args: argparse.Namespace, modes: list[RagMode]) -> dict[str, A
     metrics_records = [compute_course_qa_metrics(record, quality_labels) for record in records]
 
     return {
-        "stage": "issue_07_phase_2_course_qa_metrics",
+        "stage": "issue_07_phase_3_course_qa_saved_reports",
         "dataset_type": "course_qa",
         "dataset_path": args.dataset,
         "labels_path": args.labels,
@@ -204,11 +225,12 @@ def run_course_qa(args: argparse.Namespace, modes: list[RagMode]) -> dict[str, A
         "dataset_summary": dataset_summary,
         "records": records,
         "metrics_records": metrics_records,
+        "summary_by_mode": summarize_metrics_by_mode(metrics_records, modes),
     }
 
 
 def _assert_rag_answer(answer: RagAnswer) -> None:
-    """! @brief 保护阶段 1 输出必须保持 RagAnswer 契约对象。"""
+    """! @brief 保护输出必须保持 RagAnswer 契约对象。"""
     if not isinstance(answer, RagAnswer):
         raise TypeError("FakeRagPipeline must return RagAnswer")
 
@@ -359,6 +381,211 @@ def average(values: list[int]) -> float | None:
     return sum(values) / len(values)
 
 
+def summarize_metrics_by_mode(metrics_records: list[dict[str, Any]], modes: list[RagMode]) -> dict[str, dict[str, Any]]:
+    """! @brief 按 RAG 模式聚合阶段 3 所需汇总指标。
+    @param metrics_records 单条指标记录列表。
+    @param modes 输出顺序使用的模式列表。
+    @return mode 到汇总指标的映射。
+    """
+    summary: dict[str, dict[str, Any]] = {}
+    for mode in modes:
+        mode_records = [record for record in metrics_records if record["mode"] == mode.value]
+        label_distribution: Counter[str] = Counter()
+        for record in mode_records:
+            label_distribution.update(record.get("label_distribution", {}))
+
+        summary[mode.value] = {
+            "num_questions": len({(record["category"], record["qa_id"]) for record in mode_records}),
+            "avg_latency_ms": average_float(mode_records, "latency_ms"),
+            "avg_citation_hit": average_float(mode_records, "citation_hit"),
+            "avg_groundedness": average_float(mode_records, "groundedness"),
+            "avg_same_question_hit_count": average_float(mode_records, "same_question_hit_count"),
+            "avg_cross_question_hit_count": average_float(mode_records, "cross_question_hit_count"),
+            "avg_top_hit_quality": average_float(mode_records, "top_hit_quality"),
+            "avg_hit_quality": average_float(mode_records, "avg_hit_quality"),
+            "label_distribution": dict(sorted(label_distribution.items(), key=lambda item: int(item[0]))),
+        }
+    return summary
+
+
+def average_float(records: list[dict[str, Any]], field: str) -> float | None:
+    """! @brief 对记录中的数值字段求平均，自动跳过 None。"""
+    values = [float(record[field]) for record in records if record.get(field) is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def save_course_qa_outputs(result: dict[str, Any], output_dir: Path) -> dict[str, str]:
+    """! @brief 保存阶段 3 的 JSON、CSV 和 Markdown 报告文件。
+    @param result 已经脱敏的完整评测结果。
+    @param output_dir 输出目录。
+    @return 输出文件名到相对路径的映射。
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_answers = build_raw_answers_output(result)
+    metrics_output = build_metrics_output(result)
+    raw_path = output_dir / "course_qa_raw_answers.json"
+    metrics_path = output_dir / "course_qa_metrics.json"
+    csv_path = output_dir / "course_qa_eval.csv"
+    markdown_path = output_dir / "course_qa_eval.md"
+
+    raw_path.write_text(json.dumps(raw_answers, ensure_ascii=False, indent=2), encoding="utf-8")
+    metrics_path.write_text(json.dumps(metrics_output, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_metrics_csv(result["metrics_records"], csv_path)
+    markdown_path.write_text(build_markdown_report(result), encoding="utf-8")
+
+    return {
+        "raw_answers": sanitize_string(str(raw_path)),
+        "metrics_json": sanitize_string(str(metrics_path)),
+        "metrics_csv": sanitize_string(str(csv_path)),
+        "markdown_report": sanitize_string(str(markdown_path)),
+    }
+
+
+def build_raw_answers_output(result: dict[str, Any]) -> dict[str, Any]:
+    """! @brief 构造不含派生质量指标的 raw answers JSON。"""
+    return {
+        "dataset_type": result["dataset_type"],
+        "dataset_path": result["dataset_path"],
+        "modes": result["modes"],
+        "provider": result["provider"],
+        "model": result["model"],
+        "top_k": result["top_k"],
+        "question_count": result["question_count"],
+        "record_count": result["record_count"],
+        "dataset_summary": result["dataset_summary"],
+        "records": result["records"],
+    }
+
+
+def build_metrics_output(result: dict[str, Any]) -> dict[str, Any]:
+    """! @brief 构造逐条指标和按模式汇总指标 JSON。"""
+    return {
+        "dataset_type": result["dataset_type"],
+        "dataset_path": result["dataset_path"],
+        "labels_path": result["labels_path"],
+        "labels_read_after_generation": result["labels_read_after_generation"],
+        "quality_label_count": result["quality_label_count"],
+        "modes": result["modes"],
+        "provider": result["provider"],
+        "model": result["model"],
+        "top_k": result["top_k"],
+        "question_count": result["question_count"],
+        "metric_record_count": len(result["metrics_records"]),
+        "summary_by_mode": result["summary_by_mode"],
+        "metrics_records": result["metrics_records"],
+    }
+
+
+def write_metrics_csv(metrics_records: list[dict[str, Any]], csv_path: Path) -> None:
+    """! @brief 用固定列顺序保存逐条扁平指标 CSV。"""
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=COURSE_QA_CSV_COLUMNS)
+        writer.writeheader()
+        for record in metrics_records:
+            writer.writerow({column: format_csv_value(record.get(column)) for column in COURSE_QA_CSV_COLUMNS})
+
+
+def format_csv_value(value: Any) -> Any:
+    """! @brief 将 dict 和空值转换为 CSV 中的稳定表示。"""
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if value is None:
+        return "null"
+    return value
+
+
+def build_markdown_report(result: dict[str, Any]) -> str:
+    """! @brief 构造课程 QA 人类可读 Markdown 评测报告。"""
+    lines = [
+        "# Course QA 三模式评测报告",
+        "",
+        "## 数据与运行配置",
+        "",
+        f"- 数据集：`{result['dataset_path']}`",
+        f"- 模式：{', '.join(result['modes'])}",
+        f"- Provider / Model：`{result['provider']}` / `{result['model']}`",
+        f"- Top-k：{result['top_k']}",
+        f"- 评测问题数：{result['question_count']}",
+        f"- 原始回答记录数：{result['record_count']}",
+        "",
+        "## 指标定义",
+        "",
+        "- `latency_ms`：该条回答所有 trace 阶段耗时之和。",
+        "- `citation_hit`：引用是否命中当前问题的候选答案。",
+        "- `groundedness`：引用是否可追溯且属于当前问题证据。",
+        "- `same_question_hit_count`：检索命中中属于当前问题的数量。",
+        "- `cross_question_hit_count`：检索命中中属于其他问题的数量。",
+        "- `label_distribution`：同题命中的隐藏质量档次分布，仅用于评测报告。",
+        "- `top_hit_quality` / `avg_hit_quality`：同题命中的最高排名答案质量与平均质量。",
+        "",
+        "## 按模式汇总",
+        "",
+        "| mode | num_questions | avg_latency_ms | avg_citation_hit | avg_groundedness | avg_same_hits | avg_cross_hits | avg_top_hit_quality | avg_hit_quality | label_distribution |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+
+    for mode, summary in result["summary_by_mode"].items():
+        lines.append(
+            "| {mode} | {num_questions} | {avg_latency_ms} | {avg_citation_hit} | {avg_groundedness} | "
+            "{avg_same_question_hit_count} | {avg_cross_question_hit_count} | {avg_top_hit_quality} | "
+            "{avg_hit_quality} | `{label_distribution}` |".format(
+                mode=mode,
+                num_questions=summary["num_questions"],
+                avg_latency_ms=format_markdown_number(summary["avg_latency_ms"]),
+                avg_citation_hit=format_markdown_number(summary["avg_citation_hit"]),
+                avg_groundedness=format_markdown_number(summary["avg_groundedness"]),
+                avg_same_question_hit_count=format_markdown_number(summary["avg_same_question_hit_count"]),
+                avg_cross_question_hit_count=format_markdown_number(summary["avg_cross_question_hit_count"]),
+                avg_top_hit_quality=format_markdown_number(summary["avg_top_hit_quality"]),
+                avg_hit_quality=format_markdown_number(summary["avg_hit_quality"]),
+                label_distribution=json.dumps(summary["label_distribution"], ensure_ascii=False, sort_keys=True),
+            )
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 现场展示问题",
+            "",
+            *[f"{index}. {question}" for index, question in enumerate(select_demo_questions(result["metrics_records"]), start=1)],
+            "",
+            "## 输出文件",
+            "",
+            "- `course_qa_raw_answers.json`：每条问题、每种模式的完整 `RagAnswer`。",
+            "- `course_qa_metrics.json`：逐条指标与按模式汇总指标。",
+            "- `course_qa_eval.csv`：固定列顺序的逐条扁平指标。",
+            "- `course_qa_eval.md`：当前 Markdown 报告。",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def format_markdown_number(value: float | None) -> str:
+    """! @brief Markdown 表格中使用的数字格式。"""
+    if value is None:
+        return "null"
+    return f"{value:.4f}"
+
+
+def select_demo_questions(metrics_records: list[dict[str, Any]], max_questions: int = 5) -> list[str]:
+    """! @brief 从当前评测记录中选取前五个不重复展示问题。"""
+    questions: list[str] = []
+    seen: set[tuple[str, int]] = set()
+    for record in metrics_records:
+        key = (record["category"], int(record["qa_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        questions.append(str(record["question"]))
+        if len(questions) >= max_questions:
+            break
+    return questions
+
+
 def sanitize_for_report(value: Any) -> Any:
     """! @brief 递归脱敏输出中的绝对路径。
     @param value 任意 JSON 兼容结构。
@@ -395,6 +622,8 @@ def main() -> int:
 
     result = run_course_qa(args, modes)
     sanitized = sanitize_for_report(result)
+    saved_files = save_course_qa_outputs(sanitized, Path(args.output_dir))
+    sanitized["saved_files"] = saved_files
     print(json.dumps(sanitized, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0
 
