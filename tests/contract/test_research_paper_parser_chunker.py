@@ -3,6 +3,8 @@
 """
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,9 @@ from rag_core.chunkers import ResearchPaperChunker
 from rag_core.contracts.enums import BlockType
 from rag_core.contracts.models import Chunk, ParsedDocument
 from rag_core.parsers import MarkdownPaperParser
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_markdown_paper_parser_outputs_contract_document():
@@ -68,3 +73,41 @@ def test_markdown_paper_parser_rejects_missing_file(tmp_path):
         MarkdownPaperParser().parse(str(missing_path))
 
     assert "论文文件不存在" in str(exc_info.value)
+
+
+def test_parse_paper_sample_script_runs_on_demo_fixture():
+    """! @brief 集成入口脚本能在 demo fixture 上端到端跑通并返回 0。"""
+    script = REPO_ROOT / "scripts" / "parse_paper_sample.py"
+    paper = REPO_ROOT / "sample_data" / "papers" / "demo_research_paper.md"
+    result = subprocess.run(
+        [sys.executable, str(script), "--paper", str(paper), "--limit", "2"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["chunk_count"] >= 1
+    assert payload["block_count"] >= 1
+    assert payload["block_type_counts"]
+    assert payload["chunk_block_type_counts"]
+    assert len(payload["chunks_preview"]) == min(2, payload["chunk_count"])
+    assert "answer_quality" not in result.stdout
+
+
+def test_parse_paper_sample_script_reports_empty_corpus(tmp_path):
+    """! @brief 缺失论文文件应让脚本返回非零并把异常打到 stderr。"""
+    script = REPO_ROOT / "scripts" / "parse_paper_sample.py"
+    missing = tmp_path / "missing.md"
+    result = subprocess.run(
+        [sys.executable, str(script), "--paper", str(missing)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
+
+    assert result.returncode == 1
+    assert "EmptyCorpus" in result.stderr
