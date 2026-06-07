@@ -72,6 +72,38 @@ def test_qwen_api_mocked(monkeypatch):
     assert results[0].item_id == "qwen_api_0"
 
 
+def test_qwen_api_query_uses_query_text_type(monkeypatch):
+    """! @brief Qwen API 查询向量必须使用 query text_type。"""
+    import requests
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "fake-key")
+    embedder = QwenApiEmbedder()
+    captured_payloads = []
+
+    class MockResponse:
+        """! @brief requests 查询响应替身。"""
+
+        def raise_for_status(self):
+            """! @brief mock 响应不抛出 HTTP 错误。"""
+            pass
+
+        def json(self):
+            """! @brief 返回单条固定 embedding。"""
+            return {"output": {"embeddings": [{"text_index": 0, "embedding": [0.1, 0.2]}]}}
+
+    def mock_post(_url, headers, json, timeout):
+        """! @brief 捕获 DashScope 请求 payload。"""
+        captured_payloads.append(json)
+        return MockResponse()
+
+    monkeypatch.setattr(requests, "post", mock_post)
+    vector = embedder.embed_query("什么是自然语言处理？")
+
+    assert vector.item_id == "query_qwen_api_0"
+    assert vector.metadata["text_type"] == "query"
+    assert captured_payloads[0]["parameters"]["text_type"] == "query"
+
+
 def test_qwen_local_mocked(monkeypatch):
     """! @brief Qwen 本地 embedder 在注入模型时不下载真实模型。"""
     class DummyModel:

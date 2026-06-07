@@ -77,13 +77,14 @@ class QwenApiEmbedder(Embedder):
 
     def embed_query(self, query: str) -> EmbeddingVector:
         """! @brief 为查询文本生成可用于检索的向量。"""
-        return self.embed_batch([query], item_ids=["query_qwen_api_0"])[0]
+        return self._call_api([query], item_ids=["query_qwen_api_0"], text_type="query")[0]
 
     def _call_api(
         self,
         texts: list[str],
         start_index: int = 0,
         item_ids: list[str] | None = None,
+        text_type: str = "document",
     ) -> list[EmbeddingVector]:
         """! @brief 调用 DashScope API 并转换为 EmbeddingVector。"""
         headers = {
@@ -93,7 +94,7 @@ class QwenApiEmbedder(Embedder):
         payload = {
             "model": self.model,
             "input": {"texts": texts},
-            "parameters": {"text_type": "document"},
+            "parameters": {"text_type": text_type},
         }
         start = time.perf_counter()
         resp = requests.post(self.api_base, headers=headers, json=payload, timeout=self.timeout)
@@ -130,6 +131,7 @@ class QwenApiEmbedder(Embedder):
                         "batch_size": len(texts),
                         "position_in_batch": i,
                         "text_length": len(text),
+                        "text_type": text_type,
                     },
                 )
             )
