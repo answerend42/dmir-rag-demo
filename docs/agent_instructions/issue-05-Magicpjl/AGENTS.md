@@ -21,6 +21,7 @@
 - `tests/contract/`
 - `tests/unit/`
 - `sample_data/`
+- `scripts/parse_paper_sample.py`
 - `docs/agent_instructions/issue-05-Magicpjl/AGENTS.md`
 
 ## 硬性限制
@@ -49,6 +50,15 @@ python -m compileall backend
 pytest tests/contract tests/unit -m "not integration and not benchmark"
 ```
 
+## 当前 PDF 能力边界
+
+阶段 A 主要支持 Markdown / OCR 后文本，PDF 路径仅作最小可用兜底：
+
+- [`backend/rag_core/parsers/research_paper.py`](../../../backend/rag_core/parsers/research_paper.py) 的 `_parse_pdf` 用 PyMuPDF 抽取每页纯文本，再用 `[page N]` 包裹后走 Markdown parser。
+- 仅覆盖纯文字、单列、可选简单表格的 PDF；多列布局、扫描件、复杂版式、嵌入图表的语义全部不保证。
+- 未安装 PyMuPDF 时抛 `ProviderUnavailable`，不阻塞 Markdown / fake pipeline。
+- 阶段 B 真实论文一律先转 digest Markdown 或 OCR 后 Markdown 再入仓库；大体积 / 复杂 PDF 不进仓库。
+
 ## PR 输出
 
 PR 中必须写明：
@@ -58,3 +68,4 @@ PR 中必须写明：
 - chunk metadata 示例。
 - 目标论文 digest 与干扰论文 metadata 的接入格式。
 - 复杂 PDF/OCR 尚未覆盖的风险。
+- `scripts/parse_paper_sample.py` 在默认 corpus 上的输出摘要。
