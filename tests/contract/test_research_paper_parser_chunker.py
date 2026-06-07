@@ -75,15 +75,30 @@ def test_markdown_paper_parser_rejects_missing_file(tmp_path):
     assert "论文文件不存在" in str(exc_info.value)
 
 
+def _run_sample_script(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    """! @brief 执行 sample 脚本并强制超时，避免 CI 卡死。"""
+    script = REPO_ROOT / "scripts" / "parse_paper_sample.py"
+    try:
+        return subprocess.run(
+            [sys.executable, str(script), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=cwd,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        captured = (
+            f"sample 脚本在 30s 内未完成；stdout={exc.stdout!r} stderr={exc.stderr!r}"
+        )
+        raise AssertionError(captured) from exc
+
+
 def test_parse_paper_sample_script_runs_on_demo_fixture():
     """! @brief 集成入口脚本能在 demo fixture 上端到端跑通并返回 0。"""
-    script = REPO_ROOT / "scripts" / "parse_paper_sample.py"
     paper = REPO_ROOT / "sample_data" / "papers" / "demo_research_paper.md"
-    result = subprocess.run(
-        [sys.executable, str(script), "--paper", str(paper), "--limit", "2"],
-        capture_output=True,
-        text=True,
-        check=False,
+    result = _run_sample_script(
+        ["--paper", str(paper), "--limit", "2"],
         cwd=REPO_ROOT,
     )
 
@@ -99,15 +114,21 @@ def test_parse_paper_sample_script_runs_on_demo_fixture():
 
 def test_parse_paper_sample_script_reports_empty_corpus(tmp_path):
     """! @brief 缺失论文文件应让脚本返回非零并把异常打到 stderr。"""
-    script = REPO_ROOT / "scripts" / "parse_paper_sample.py"
     missing = tmp_path / "missing.md"
-    result = subprocess.run(
-        [sys.executable, str(script), "--paper", str(missing)],
-        capture_output=True,
-        text=True,
-        check=False,
+    result = _run_sample_script(
+        ["--paper", str(missing)],
         cwd=REPO_ROOT,
     )
 
     assert result.returncode == 1
     assert "EmptyCorpus" in result.stderr
+
+
+def test_parse_paper_sample_script_works_outside_repo_root(tmp_path):
+    """! @brief 默认论文路径必须不依赖运行目录，从仓库外也能跑通。"""
+    result = _run_sample_script(["--limit", "1"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["chunk_count"] >= 1
+    assert payload["paper"].endswith("llm_wiki_retrieval_as_reasoning.md")

@@ -24,7 +24,8 @@ from rag_core.contracts.errors import EmptyCorpus, ProviderUnavailable
 from rag_core.parsers import MarkdownPaperParser
 
 
-DEFAULT_PAPER = "sample_data/papers/llm_wiki_retrieval_as_reasoning.md"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PAPER = str(REPO_ROOT / "sample_data" / "papers" / "llm_wiki_retrieval_as_reasoning.md")
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,6 +51,14 @@ def _summarise_chunk(chunk, head_chars: int = 80) -> dict:
     }
 
 
+def _display_path(path: str) -> str:
+    """! @brief 把绝对路径还原成仓库相对路径以稳定 stdout。"""
+    try:
+        return str(Path(path).resolve().relative_to(REPO_ROOT))
+    except (ValueError, OSError):
+        return path
+
+
 def main() -> int:
     """! @brief 解析论文、分块、输出摘要 JSON。
     @return 解析与分块成功返回 0；遇 EmptyCorpus / ProviderUnavailable 返回 1。
@@ -67,7 +76,7 @@ def main() -> int:
     chunk_block_type_counts = Counter(chunk.metadata.get("block_type", "") for chunk in chunks)
 
     payload = {
-        "paper": args.paper,
+        "paper": _display_path(args.paper),
         "doc_id": document.doc_id,
         "title": document.title,
         "parser_name": document.parser_name,
