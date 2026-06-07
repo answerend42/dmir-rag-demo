@@ -4,7 +4,9 @@
 
 ## Owner
 
-`Magicpjl`
+当前集中收口 Owner：`answerend42`。
+
+原模块负责人：`Magicpjl`。
 
 ## 必读文档
 
@@ -34,11 +36,11 @@
 
 1. 读取 #1 的 `DocumentParser`、`Chunker` Protocol。
 2. 第一阶段默认数据是 `sample_data/course_qa_public.json`，PDF/论文解析不得阻塞默认 QA 流水线。
-3. 再实现 PDF->Markdown 或轻量 Markdown parser 的 skeleton。
-4. 实现 `research_paper_chunker`，优先按 section/table/caption 保留结构。
-5. 用小样例 PDF 或 Markdown fixture 写 contract tests。
+3. 当前 main 收口目标是 Markdown/PDF parser skeleton 与 `ResearchPaperChunker`，先用小型 Markdown fixture 验证。
+4. parser/chunker 输出必须保留 `page_numbers`、`section_path`、`block_type`。
+5. 用小样例 Markdown fixture 写 contract tests。
 6. 对复杂版式/OCR 标记可选路线，不作为普通 PR 的硬依赖。
-7. 当 #7 给出目标论文和干扰论文清单后，继续用同一 parser/chunker 支持论文 corpus。
+7. 当真实目标论文和干扰论文清单确定后，继续用同一 parser/chunker 支持论文 corpus。
 
 ## 验收命令
 

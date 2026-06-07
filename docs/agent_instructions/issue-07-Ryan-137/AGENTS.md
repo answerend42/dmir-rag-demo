@@ -4,7 +4,9 @@
 
 ## Owner
 
-`Ryan-137`
+当前集中收口 Owner：`answerend42`。
+
+原模块负责人：`Ryan-137`。
 
 ## 必读文档
 
@@ -37,17 +39,18 @@
 1. 读取 `sample_data/course_qa_public.json` 作为系统可见输入。
 2. 读取 `eval/labels/course_qa_quality_labels.json` 作为评测专用隐藏标签。
 3. 设计至少 5 个课程 QA 现场稳定展示问题。
-4. 实现 `run_eval.py` 的 mock/small 模式，输出 JSON/CSV/Markdown。
+4. 实现 `run_eval.py` 的 mock/small 模式，输出 JSON/CSV/Markdown；前端读取 `eval/results/course_qa_eval.json`。
 5. 三模式指标至少包含 citation_hit、label_distribution、groundedness、latency。
 6. 写测试确认 `answer_quality` 不会出现在 RAG 请求、检索命中、trace 或前端展示数据中。
 
 阶段 B：新论文
 
-7. 找到 1 篇大模型未充分掌握的新论文，记录标题、作者、年份、链接、选择理由和访问日期。
-8. 选择 2-4 篇相关干扰论文或背景论文，记录 metadata 和用途。
-9. 设计 20-30 个论文 QA，覆盖方法、实验数字、消融、图表/表格结论和与干扰论文的差异。
-10. 为每个论文问题标注 evidence：paper_id、page、section、paragraph/table/caption 线索。
-11. 让 `run_eval.py` 同时支持课程 QA 数据集和论文数据集，输出同一套三模式指标。
+7. 当前先提供 `sample_data/papers/paper_eval_fixture.json` 作为格式 fixture。
+8. 后续找到 1 篇大模型未充分掌握的新论文后，替换 target paper metadata。
+9. 选择 2-4 篇相关干扰论文或背景论文，记录 metadata 和用途。
+10. 设计 20-30 个论文 QA，覆盖方法、实验数字、消融、图表/表格结论和与干扰论文的差异。
+11. 为每个论文问题标注 evidence：paper_id、page、section、paragraph/table/caption 线索。
+12. `run_eval.py` 必须同时支持课程 QA 数据集和论文数据集，输出同一套三模式指标。
 
 ## 验收命令
 

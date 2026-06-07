@@ -1,0 +1,60 @@
+{
+  "dataset": "paper_eval_fixture",
+  "version": "0.1.0",
+  "description": "阶段 B 论文评测格式 fixture；真实目标论文确定后替换 metadata、corpus 和 questions。",
+  "target_paper": {
+    "paper_id": "demo-rag-fixture",
+    "title": "DemoRAG: A Tiny Fixture for Retrieval Evaluation",
+    "authors": ["RAG Demo Team"],
+    "year": 2026,
+    "source_path": "sample_data/papers/demo_research_paper.md",
+    "url": "",
+    "accessed_at": "2026-06-07",
+    "selection_reason": "本地离线 fixture，用于先跑通论文 parser、chunker 与评测格式。"
+  },
+  "distractor_papers": [
+    {
+      "paper_id": "demo-background-1",
+      "title": "Background Notes for Retrieval-Augmented Generation",
+      "purpose": "阶段 B 干扰论文 metadata 示例，真实论文清单确定后替换。"
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "paper-q1",
+      "question": "DemoRAG 的三阶段流程包括哪些步骤？",
+      "expected_evidence": [
+        {
+          "paper_id": "demo-rag-fixture",
+          "page": 1,
+          "section": "Abstract",
+          "hint": "rewrites queries, retrieves evidence, and generates grounded Chinese answers"
+        }
+      ]
+    },
+    {
+      "question_id": "paper-q2",
+      "question": "DemoRAG 在没有证据时应该怎么处理？",
+      "expected_evidence": [
+        {
+          "paper_id": "demo-rag-fixture",
+          "page": 1,
+          "section": "Method",
+          "hint": "refuses to answer when no evidence is available"
+        }
+      ]
+    },
+    {
+      "question_id": "paper-q3",
+      "question": "在 fixture 的实验数字中 Optimized RAG 回答了几个问题？",
+      "expected_evidence": [
+        {
+          "paper_id": "demo-rag-fixture",
+          "page": 2,
+          "section": "Experiments",
+          "hint": "Optimized RAG answers all three"
+        }
+      ]
+    }
+  ]
+}

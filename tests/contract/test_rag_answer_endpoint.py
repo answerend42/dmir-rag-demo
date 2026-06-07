@@ -98,3 +98,13 @@ def test_rag_answer_rejects_real_provider_until_adapters_land():
 
     assert response.status_code == 400
     assert "provider=mock" in response.json()["detail"]
+
+
+def test_eval_result_endpoint_serves_frontend_summary():
+    """! @brief 前端 dashboard 可读取 run_eval.py 生成的课程 QA 评测摘要。"""
+    response = _client().get("/eval/results/course_qa_eval.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload["summary"]) == {"llm_only", "basic_rag", "optimized_rag"}
+    assert "answer_quality" not in response.text

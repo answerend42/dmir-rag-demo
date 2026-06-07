@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""! @brief 对比不同 embedding 模式的输出摘要。"""
+"""! @file compare_embeddings.py
+@brief 对比不同 embedding 模式的输出摘要。
+"""
 
 import argparse
+import json
 import sys
+from math import sqrt
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
@@ -12,10 +16,9 @@ from rag_core.contracts.errors import ProviderUnavailable
 
 
 def cosine_similarity(v1, v2):
-    """计算余弦相似度，若维度不一致则抛出 ValueError。"""
+    """! @brief 计算余弦相似度，若维度不一致则抛出 ValueError。"""
     if len(v1) != len(v2):
         raise ValueError(f"向量维度不一致: {len(v1)} vs {len(v2)}")
-    from math import sqrt
     dot = sum(a * b for a, b in zip(v1, v2))
     n1 = sqrt(sum(a * a for a in v1))
     n2 = sqrt(sum(b * b for b in v2))
@@ -23,6 +26,7 @@ def cosine_similarity(v1, v2):
 
 
 def main():
+    """! @brief 解析命令行参数并输出 embedding 摘要。"""
     parser = argparse.ArgumentParser(description="对比 Embedder 输出")
     parser.add_argument("--mode", choices=["mock", "api", "local"], default="mock",
                         help="选择 embedder 模式")
@@ -35,7 +39,6 @@ def main():
     args = parser.parse_args()
 
     if args.input:
-        import json
         with open(args.input, "r", encoding="utf-8") as f:
             data = json.load(f)
             texts = data.get("chunks", args.texts)
@@ -51,11 +54,7 @@ def main():
             print(f"错误: {e}")
             sys.exit(1)
     else:
-        try:
-            embedder = QwenLocalEmbedder()
-        except ImportError as e:
-            print(f"错误: {e}")
-            sys.exit(1)
+        embedder = QwenLocalEmbedder()
 
     print(f"使用 {args.mode} 嵌入器 (provider={embedder.provider}, model={getattr(embedder, 'model_name', getattr(embedder, 'model', 'unknown'))})")
     print(f"嵌入 {len(texts)} 条文本...")

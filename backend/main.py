@@ -7,20 +7,11 @@
 import os
 import json
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from services.loading_service import LoadingService
-from services.chunking_service import ChunkingService
-from services.embedding_service import EmbeddingService, EmbeddingConfig
-from services.vector_store_service import VectorStoreService, VectorDBConfig
-from services.search_service import SearchService
-from services.parsing_service import ParsingService
 import logging
 from enum import Enum
-from utils.config import VectorDBProvider
-import pandas as pd
 from pathlib import Path
-from services.generation_service import GenerationService
 from typing import List, Dict, Optional
 from rag_core.contracts.errors import ContractViolation, EmptyCorpus, ProviderUnavailable, RagCoreError
 from rag_core.contracts.models import RagRequest
@@ -48,11 +39,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-## @brief 供生成端点复用的共享生成服务实例。
-generation_service = GenerationService()
-
 ## @brief #8 阶段 A 的课程 QA 集成主链路。
 course_qa_rag_spine = CourseQaRagSpine()
+
+## @brief 前端评测 dashboard 读取的离线结果目录。
+eval_results_dir = Path(__file__).resolve().parents[1] / "eval" / "results"
 
 
 @app.post("/rag/answer")
@@ -72,6 +63,30 @@ async def rag_answer(request: RagRequest):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RagCoreError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/eval/results/{filename}")
+async def get_eval_result(filename: str):
+    """! @brief 读取 scripts/run_eval.py 生成的离线评测结果。
+    @param filename 结果文件名，仅允许 json/csv/md。
+    @return JSON 结果或文本结果。
+    @throws HTTPException 文件名非法或结果不存在时抛出。
+    """
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        raise HTTPException(status_code=400, detail="非法评测结果文件名")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".json", ".csv", ".md"}:
+        raise HTTPException(status_code=400, detail="仅支持读取 json/csv/md 评测结果")
+
+    path = eval_results_dir / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"评测结果不存在: {filename}")
+
+    if suffix == ".json":
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    media_type = "text/csv; charset=utf-8" if suffix == ".csv" else "text/markdown; charset=utf-8"
+    return Response(content=path.read_text(encoding="utf-8"), media_type=media_type)
 
 @app.post("/process")
 async def process_file(
@@ -103,6 +118,9 @@ async def process_file(
             "chunking_method": chunking_option,
         }
         
+        from services.loading_service import LoadingService
+        from services.chunking_service import ChunkingService
+
         loading_service = LoadingService()
         raw_text = loading_service.load_pdf(temp_path, loading_method)
         metadata["total_pages"] = loading_service.get_total_pages()
@@ -218,6 +236,8 @@ async def embed_document(data: dict = Body(...)):
         with open(doc_path, 'r', encoding='utf-8') as f:
             doc_data = json.load(f)
         
+        from services.embedding_service import EmbeddingService, EmbeddingConfig
+
         # 创建 EmbeddingConfig 和 EmbeddingService
         config = EmbeddingConfig(provider=provider, model_name=model)
         embedding_service = EmbeddingService()
@@ -312,6 +332,8 @@ async def index_embeddings(data: dict):
         if not os.path.exists(embedding_file):
             raise FileNotFoundError(f"Embedding file not found: {file_id}")
             
+        from services.vector_store_service import VectorStoreService, VectorDBConfig
+
         config = VectorDBConfig(provider=vector_db, index_mode=index_mode)
         vector_store_service = VectorStoreService()
         result = vector_store_service.index_embeddings(embedding_file, config)
@@ -328,6 +350,8 @@ async def index_embeddings(data: dict):
 async def get_providers():
     """! @brief 获取支持的向量数据库列表."""
     try:
+        from services.search_service import SearchService
+
         search_service = SearchService()
         providers = search_service.get_providers()
         return {"providers": providers}
@@ -341,12 +365,14 @@ async def get_providers():
 @app.get("/collections")
 async def get_collections(
    # provider: VectorDBProvider = Query(default=VectorDBProvider.MILVUS)
-    provider: VectorDBProvider = Query(default=VectorDBProvider.CHROMA)
+    provider: str = Query(default="chroma")
 ):
     """! @brief 获取指定向量数据库中的集合."""
     try:
+        from services.search_service import SearchService
+
         search_service = SearchService()
-        collections = search_service.list_collections(provider.value)
+        collections = search_service.list_collections(provider)
         return {"collections": collections}
     except Exception as e:
         logger.error(f"Error getting collections: {str(e)}")
@@ -370,6 +396,8 @@ async def search(
         # 记录传入的搜索请求详情
         logger.info(f"Search request - Query: {query}, Collection: {collection_id}, Top K: {top_k}, Threshold: {threshold}, Word Count Threshold: {word_count_threshold}")
         
+        from services.search_service import SearchService
+
         search_service = SearchService()
         
         # 调用搜索函数前记录日志
@@ -398,6 +426,8 @@ async def search(
 async def get_provider_collections(provider: str):
     """! @brief 获取指定向量数据库提供方的集合列表。"""
     try:
+        from services.vector_store_service import VectorStoreService
+
         vector_store_service = VectorStoreService()
         collections = vector_store_service.list_collections(provider)
         return {"collections": collections}
@@ -412,6 +442,8 @@ async def get_provider_collections(provider: str):
 async def get_collection_info(provider: str, collection_name: str):
     """! @brief 获取指定集合的详细信息。"""
     try:
+        from services.vector_store_service import VectorStoreService
+
         vector_store_service = VectorStoreService()
         info = vector_store_service.get_collection_info(provider, collection_name)
         return info
@@ -426,6 +458,8 @@ async def get_collection_info(provider: str, collection_name: str):
 async def delete_collection(provider: str, collection_name: str):
     """! @brief 删除指定集合。"""
     try:
+        from services.vector_store_service import VectorStoreService
+
         vector_store_service = VectorStoreService()
         success = vector_store_service.delete_collection(provider, collection_name)
         if success:
@@ -650,6 +684,9 @@ async def parse_file(
             "parsing_method": parsing_option,
         }
         
+        from services.loading_service import LoadingService
+        from services.parsing_service import ParsingService
+
         loading_service = LoadingService()
         raw_text = loading_service.load_pdf(temp_path, loading_method)
         metadata["total_pages"] = loading_service.get_total_pages()
@@ -711,6 +748,8 @@ async def load_file(
         if chunking_options:
             chunking_options_dict = json.loads(chunking_options)
         
+        from services.loading_service import LoadingService
+
         # 使用 LoadingService 加载文档
         loading_service = LoadingService()
         raw_text = loading_service.load_pdf(
@@ -805,6 +844,8 @@ async def chunk_document(data: dict = Body(...)):
             "total_pages": doc_data['total_pages']
         }
             
+        from services.chunking_service import ChunkingService
+
         chunking_service = ChunkingService()
         result = chunking_service.chunk_text(
             text="",  # 不需要传递文本，因为我们使用 page_map
@@ -846,6 +887,9 @@ async def evaluate_search(
     @return 单条查询得分和聚合平均值。
     """
     try:
+        import pandas as pd
+        from services.search_service import SearchService
+
         # 读取CSV文件
         df = pd.read_csv(file.file)
         
@@ -988,6 +1032,8 @@ async def save_search_results(request: Request):
         if not all([query, collection_id, results]):
             raise HTTPException(status_code=400, detail="Missing required parameters")
         
+        from services.search_service import SearchService
+
         # 直接创建 SearchService 实例
         search_service = SearchService()
         filepath = search_service.save_search_results(query, collection_id, results)
@@ -1001,6 +1047,8 @@ async def save_search_results(request: Request):
 async def get_generation_models():
     """! @brief 获取可用的生成模型列表."""
     try:
+        from services.generation_service import GenerationService
+
         generation_service = GenerationService()
         models = generation_service.get_available_models()
         return {"models": models}
@@ -1021,6 +1069,9 @@ async def generate_response(
     @return 生成回答和持久化结果路径。
     """
     try:
+        from services.generation_service import GenerationService
+
+        generation_service = GenerationService()
         result = generation_service.generate(
             provider=provider,
             model_name=model_name,

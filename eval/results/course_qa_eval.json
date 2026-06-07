@@ -1,0 +1,332 @@
+{
+  "dataset_type": "course_qa",
+  "generated_at": "2026-06-07T03:17:37.104814+00:00",
+  "question_count": 5,
+  "metadata": {
+    "dataset_path": "sample_data/course_qa_public.json",
+    "labels_path": "eval/labels/course_qa_quality_labels.json"
+  },
+  "summary": {
+    "llm_only": {
+      "total": 5,
+      "answerable": 5,
+      "cited": 0,
+      "refused": 0,
+      "citation_hit": 0.0,
+      "groundedness": 0.0,
+      "avg_latency_ms": 0.781,
+      "label_distribution": {},
+      "note": "不使用检索证据，用于展示纯模型盲区。"
+    },
+    "basic_rag": {
+      "total": 5,
+      "answerable": 5,
+      "cited": 5,
+      "refused": 0,
+      "citation_hit": 1.0,
+      "groundedness": 1.0,
+      "avg_latency_ms": 0.903,
+      "label_distribution": {
+        "0": 3,
+        "1": 3,
+        "2": 2,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "7": 1,
+        "8": 3
+      },
+      "note": "dense top-k 检索后直接生成。"
+    },
+    "optimized_rag": {
+      "total": 5,
+      "answerable": 5,
+      "cited": 5,
+      "refused": 0,
+      "citation_hit": 1.0,
+      "groundedness": 1.0,
+      "avg_latency_ms": 0.889,
+      "label_distribution": {
+        "0": 3,
+        "1": 3,
+        "2": 2,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "7": 1,
+        "8": 3
+      },
+      "note": "预留 query rewrite / rerank / grounded prompt，对证据不足场景更谨慎。"
+    }
+  },
+  "demo_questions": [
+    {
+      "question_id": "course-1",
+      "question": "什么是自然语言处理？",
+      "metadata": {
+        "category": "自然语言处理课程知识问答",
+        "qa_id": 1
+      }
+    },
+    {
+      "question_id": "course-2",
+      "question": "中文分词为什么重要？",
+      "metadata": {
+        "category": "自然语言处理课程知识问答",
+        "qa_id": 2
+      }
+    },
+    {
+      "question_id": "course-3",
+      "question": "词袋模型有什么特点？",
+      "metadata": {
+        "category": "自然语言处理课程知识问答",
+        "qa_id": 3
+      }
+    },
+    {
+      "question_id": "course-4",
+      "question": "TF-IDF 为什么常用于关键词提取？",
+      "metadata": {
+        "category": "自然语言处理课程知识问答",
+        "qa_id": 4
+      }
+    },
+    {
+      "question_id": "course-5",
+      "question": "停用词一定要删除吗？",
+      "metadata": {
+        "category": "自然语言处理课程知识问答",
+        "qa_id": 5
+      }
+    }
+  ],
+  "result_samples": {
+    "llm_only": [
+      {
+        "question_id": "course-1",
+        "question": "什么是自然语言处理？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 0.833,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "course-2",
+        "question": "中文分词为什么重要？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 0.853,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "course-3",
+        "question": "词袋模型有什么特点？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 0.759,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "course-4",
+        "question": "TF-IDF 为什么常用于关键词提取？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 0.742,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "course-5",
+        "question": "停用词一定要删除吗？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 0.718,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      }
+    ],
+    "basic_rag": [
+      {
+        "question_id": "course-1",
+        "question": "什么是自然语言处理？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.856,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "0": 1,
+          "1": 1,
+          "8": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.447：课程主题：自然语言处理课程知识问答\n问题：什么是自然语言处理？\n候选答案：自然语言处理是面向人类语言的计算建模与应用技术，核心目标是让机器能够对文本或语音中的语言信息进行有效表示、理解和生成，并服务于检索、翻译、对话和摘要等实际任务。\n- 排名 2，相关性 1.408：课程主题：自然语言处理课程知识问答\n问题：什么是自然语言处理？\n候选答案：自然语言处理是处理文字的一种技术。\n- 排名 3，相关性 1.408：课"
+      },
+      {
+        "question_id": "course-2",
+        "question": "中文分词为什么重要？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.849,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "0": 1,
+          "4": 1,
+          "8": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.447：课程主题：自然语言处理课程知识问答\n问题：中文分词为什么重要？\n候选答案：中文文本不像英文那样天然有空格分隔单词，因此很多 NLP 任务要先做分词。\n- 排名 2，相关性 1.000：课程主题：自然语言处理课程知识问答\n问题：中文分词为什么重要？\n候选答案：中文分词之所以重要，是因为中文缺少稳定的词间分隔标记，计算机接收到的常常只是连续字符序列。若分词边界错误，不仅会破坏词级统计特征，还会影响词性标注、命名实体识"
+      },
+      {
+        "question_id": "course-3",
+        "question": "词袋模型有什么特点？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 1.018,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "0": 1,
+          "2": 1,
+          "3": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.756：课程主题：自然语言处理课程知识问答\n问题：词袋模型有什么特点？\n候选答案：它会统计词出现没有，不太管顺序。\n- 排名 2，相关性 1.632：课程主题：自然语言处理课程知识问答\n问题：词袋模型有什么特点？\n候选答案：词袋模型把文本表示成词频信息，优点是简单，但一般不考虑词序。\n- 排名 3，相关性 1.408：课程主题：自然语言处理课程知识问答\n问题：词袋模型有什么特点？\n候选答案：就是把词放在一起。"
+      },
+      {
+        "question_id": "course-4",
+        "question": "TF-IDF 为什么常用于关键词提取？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.93,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "1": 1,
+          "7": 1,
+          "8": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.816：课程主题：自然语言处理课程知识问答\n问题：TF-IDF 为什么常用于关键词提取？\n候选答案：TF-IDF 常用来选比较重要的词。\n- 排名 2，相关性 1.756：课程主题：自然语言处理课程知识问答\n问题：TF-IDF 为什么常用于关键词提取？\n候选答案：关键词提取需要找出既能代表当前文档、又不会在所有文档里普遍出现的词。TF-IDF 恰好从局部词频与全局逆文档频率两个角度给词打分，因此比单纯统计出现次数更能反映"
+      },
+      {
+        "question_id": "course-5",
+        "question": "停用词一定要删除吗？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.86,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "1": 1,
+          "2": 1,
+          "5": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.667：课程主题：自然语言处理课程知识问答\n问题：停用词一定要删除吗？\n候选答案：停用词不一定都删，要看任务。\n- 排名 2，相关性 1.577：课程主题：自然语言处理课程知识问答\n问题：停用词一定要删除吗？\n候选答案：停用词不一定要删除，因为像不、没、但是这类词在情感分析或推理中可能携带重要信息。\n- 排名 3，相关性 1.447：课程主题：自然语言处理课程知识问答\n问题：停用词一定要删除吗？\n候选答案：大多数时候会删"
+      }
+    ],
+    "optimized_rag": [
+      {
+        "question_id": "course-1",
+        "question": "什么是自然语言处理？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.925,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "0": 1,
+          "1": 1,
+          "8": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.447：课程主题：自然语言处理课程知识问答\n问题：什么是自然语言处理？\n候选答案：自然语言处理是面向人类语言的计算建模与应用技术，核心目标是让机器能够对文本或语音中的语言信息进行有效表示、理解和生成，并服务于检索、翻译、对话和摘要等实际任务。\n- 排名 2，相关性 1.408：课程主题：自然语言处理课程知识问答\n问题：什么是自然语言处理？\n候选答案：自然语言处理是处理文字的一种技术。\n- 排名 3，相关性 1.408：课"
+      },
+      {
+        "question_id": "course-2",
+        "question": "中文分词为什么重要？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.863,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "0": 1,
+          "4": 1,
+          "8": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.447：课程主题：自然语言处理课程知识问答\n问题：中文分词为什么重要？\n候选答案：中文文本不像英文那样天然有空格分隔单词，因此很多 NLP 任务要先做分词。\n- 排名 2，相关性 1.000：课程主题：自然语言处理课程知识问答\n问题：中文分词为什么重要？\n候选答案：中文分词之所以重要，是因为中文缺少稳定的词间分隔标记，计算机接收到的常常只是连续字符序列。若分词边界错误，不仅会破坏词级统计特征，还会影响词性标注、命名实体识"
+      },
+      {
+        "question_id": "course-3",
+        "question": "词袋模型有什么特点？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.949,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "0": 1,
+          "2": 1,
+          "3": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.756：课程主题：自然语言处理课程知识问答\n问题：词袋模型有什么特点？\n候选答案：它会统计词出现没有，不太管顺序。\n- 排名 2，相关性 1.632：课程主题：自然语言处理课程知识问答\n问题：词袋模型有什么特点？\n候选答案：词袋模型把文本表示成词频信息，优点是简单，但一般不考虑词序。\n- 排名 3，相关性 1.408：课程主题：自然语言处理课程知识问答\n问题：词袋模型有什么特点？\n候选答案：就是把词放在一起。"
+      },
+      {
+        "question_id": "course-4",
+        "question": "TF-IDF 为什么常用于关键词提取？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.872,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "1": 1,
+          "7": 1,
+          "8": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.816：课程主题：自然语言处理课程知识问答\n问题：TF-IDF 为什么常用于关键词提取？\n候选答案：TF-IDF 常用来选比较重要的词。\n- 排名 2，相关性 1.756：课程主题：自然语言处理课程知识问答\n问题：TF-IDF 为什么常用于关键词提取？\n候选答案：关键词提取需要找出既能代表当前文档、又不会在所有文档里普遍出现的词。TF-IDF 恰好从局部词频与全局逆文档频率两个角度给词打分，因此比单纯统计出现次数更能反映"
+      },
+      {
+        "question_id": "course-5",
+        "question": "停用词一定要删除吗？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 0.836,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {
+          "1": 1,
+          "2": 1,
+          "5": 1
+        },
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 1.667：课程主题：自然语言处理课程知识问答\n问题：停用词一定要删除吗？\n候选答案：停用词不一定都删，要看任务。\n- 排名 2，相关性 1.577：课程主题：自然语言处理课程知识问答\n问题：停用词一定要删除吗？\n候选答案：停用词不一定要删除，因为像不、没、但是这类词在情感分析或推理中可能携带重要信息。\n- 排名 3，相关性 1.447：课程主题：自然语言处理课程知识问答\n问题：停用词一定要删除吗？\n候选答案：大多数时候会删"
+      }
+    ]
+  }
+}

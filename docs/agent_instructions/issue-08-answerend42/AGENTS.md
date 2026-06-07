@@ -39,9 +39,11 @@
 2. 汇总 parser、embedding、index、generation、frontend、eval 各模块 PR。
 3. 统一 `/rag/answer` 输入输出。
 4. 固定课程 QA demo 数据、索引、模型 provider、top_k 和 5 个现场问题。
-5. 在 #7 给出目标论文后，接入论文 corpus、论文演示问题和三模式评测结果。
-6. 生成最终评测表、截图、录屏和离线 fallback。
-7. 展示前锁定 main，只合并 P0/P1 bugfix。
+5. 用 `scripts/run_eval.py` 生成 `eval/results/course_qa_eval.json`，供前端 dashboard 读取。
+6. 在真实目标论文确定前，先使用 `sample_data/papers/` fixture 验证论文 parser/chunker/eval 格式。
+7. 在 #7 给出真实目标论文后，替换论文 corpus、论文演示问题和三模式评测结果。
+8. 生成最终评测表、截图、录屏和离线 fallback。
+9. 展示前锁定 main，只合并 P0/P1 bugfix。
 
 ## 验收命令
 
