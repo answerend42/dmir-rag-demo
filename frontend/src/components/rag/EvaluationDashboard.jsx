@@ -14,7 +14,13 @@ const asDisplayValue = (value) => {
 
 /**
  * @brief 渲染三模式评测表。
- * @param {{summary: object, datasets?: Array<object>}} props 组件属性。
+ * @param {{
+ *   summary: object,
+ *   status?: {type?: string, message?: string},
+ *   datasets?: Array<{key: string, label: string}>,
+ *   selectedDataset?: string,
+ *   onSelectDataset?: (key: string) => void
+ * }} props 组件属性。
  * @returns {JSX.Element} 评测 dashboard。
  */
 const EvaluationDashboard = ({ summary, status, datasets = [], selectedDataset, onSelectDataset }) => {

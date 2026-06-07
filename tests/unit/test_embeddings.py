@@ -97,7 +97,7 @@ def test_qwen_api_query_uses_query_text_type(monkeypatch):
         return MockResponse()
 
     monkeypatch.setattr(requests, "post", mock_post)
-    vector = embedder.embed_query("什么是自然语言处理？")
+    vector = embedder.embed_query("什么是自然语言处理?")
 
     assert vector.item_id == "query_qwen_api_0"
     assert vector.metadata["text_type"] == "query"

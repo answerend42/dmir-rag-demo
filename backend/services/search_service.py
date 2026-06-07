@@ -144,11 +144,11 @@ class SearchService:
         if metadatas and isinstance(metadatas[0], list):
             metadatas = metadatas[0]
         if not metadatas:
-            raise ValueError("Collection is empty or missing metadata")
+            raise ValueError("集合为空或缺少 metadata。")
 
         metadata = metadatas[0]
         if not metadata.get("embedding_provider") or not metadata.get("embedding_model"):
-            raise ValueError("Collection metadata missing embedding provider/model")
+            raise ValueError("集合 metadata 缺少 embedding_provider 或 embedding_model。")
         return metadata
 
     async def search(self,

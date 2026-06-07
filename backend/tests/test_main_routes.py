@@ -165,14 +165,6 @@ class FakeSearchService:
 
     async def search(self, **kwargs):
         FakeSearchService.last_search_kwargs = kwargs
-        if "word_count_threshold" not in kwargs:
-            return [
-                {
-                    "metadata": {"page": 1},
-                    "text": "hit text",
-                    "score": 0.9,
-                }
-            ]
         return {
             "results": [
                 {
@@ -275,7 +267,7 @@ def test_document_chunk_embedding_and_index_routes(client, main_module, monkeypa
     assert chunk_response.status_code == 200
     assert chunk_response.json()["chunking_method"] == "fixed_size"
     assert chunk_response.json()["chunk_overlap"] == 100
-    assert client.post("/chunk", json={}).status_code == 500
+    assert client.post("/chunk", json={}).status_code == 400
 
     embed_response = client.post("/embed", json={"documentId": "chunked.json", "provider": "huggingface", "model": "fake"})
     assert embed_response.status_code == 200

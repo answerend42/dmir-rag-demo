@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from rag_core.contracts.errors import ContractViolation, EmptyCorpus, ProviderUnavailable, RagCoreError
 from rag_core.contracts.models import RagRequest
 from rag_core.pipeline import CourseQaRagSpine
@@ -44,6 +44,22 @@ course_qa_rag_spine = CourseQaRagSpine()
 
 ## @brief 前端评测 dashboard 读取的离线结果目录。
 eval_results_dir = Path(__file__).resolve().parents[1] / "eval" / "results"
+
+
+def _strip_answer_quality(value: Any) -> Any:
+    """! @brief 递归移除只允许评测脚本读取的 answer_quality 字段。
+    @param value 任意 JSON 可序列化数据。
+    @return 不含隐藏质量档次字段的数据。
+    """
+    if isinstance(value, dict):
+        return {
+            key: _strip_answer_quality(item)
+            for key, item in value.items()
+            if key != "answer_quality"
+        }
+    if isinstance(value, list):
+        return [_strip_answer_quality(item) for item in value]
+    return value
 
 
 @app.post("/rag/answer")
@@ -89,7 +105,7 @@ async def get_eval_result(filename: str):
 
     if suffix == ".json":
         with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
+            return _strip_answer_quality(json.load(handle))
     media_type = "text/csv; charset=utf-8" if suffix == ".csv" else "text/markdown; charset=utf-8"
     return Response(content=path.read_text(encoding="utf-8"), media_type=media_type)
 
@@ -148,6 +164,9 @@ async def process_file(
         os.remove(temp_path)
         
         return {"chunks": chunks}
+    except ValueError as e:
+        logger.warning(f"分块参数非法: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
         raise
@@ -885,6 +904,11 @@ async def chunk_document(data: dict = Body(...)):
         
         return result
         
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"分块参数非法: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error chunking document: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -942,15 +966,25 @@ async def evaluate_search(
                     continue
                 
                 # 执行搜索
-                search_results = await search_service.search(
+                search_payload = await search_service.search(
                     query=row['combined_text'],
                     collection_id=collection_id,
                     top_k=top_k,
                     threshold=threshold
                 )
+                search_results = (
+                    search_payload.get("results", []) or []
+                    if isinstance(search_payload, dict)
+                    else search_payload
+                )
                 
                 # 提取找到的页码
-                found_pages = [int(result['metadata']['page']) for result in search_results]
+                found_pages = []
+                for result in search_results:
+                    metadata = result.get('metadata', {})
+                    page = metadata.get('page', metadata.get('page_number'))
+                    if page is not None:
+                        found_pages.append(int(page))
                 
                 # 计算分数
                 hits = sum(1 for page in found_pages if page in expected_pages)
@@ -968,9 +1002,10 @@ async def evaluate_search(
                 
                 # 添加每个top_k结果的文本作为单独的字段
                 for i, result in enumerate(search_results, 1):
-                    result_entry[f"text_{i}"] = result['text']
-                    result_entry[f"page_{i}"] = result['metadata']['page']
-                    result_entry[f"score_{i}"] = result['score']
+                    metadata = result.get('metadata', {})
+                    result_entry[f"text_{i}"] = result.get('text', '')
+                    result_entry[f"page_{i}"] = metadata.get('page', metadata.get('page_number'))
+                    result_entry[f"score_{i}"] = result.get('score', 0)
                 
                 results.append(result_entry)
                 
@@ -983,7 +1018,7 @@ async def evaluate_search(
                 continue
         
         if valid_queries == 0:
-            raise ValueError("No valid queries found in the CSV file")
+            raise ValueError("CSV 中没有可评估的有效查询")
         
         # 计算平均分数
         average_scores = {

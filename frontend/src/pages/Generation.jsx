@@ -101,13 +101,29 @@ const Generation = () => {
 
   /** @brief 加载课程 QA 与论文评测摘要；后端或静态文件不可用时保留 fallback。 */
   useEffect(() => {
+    let isMounted = true;
+    const controllers = new Set();
+
+    const fetchWithTimeout = async (url, timeoutMs = 8000) => {
+      const controller = new AbortController();
+      controllers.add(controller);
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        return await fetch(url, { signal: controller.signal });
+      } finally {
+        window.clearTimeout(timeoutId);
+        controllers.delete(controller);
+      }
+    };
+
     const fetchEvaluationSummaries = async () => {
       const loadedSummaries = {};
       const failedLabels = [];
 
       await Promise.all(EVALUATION_DATASETS.map(async (dataset) => {
         try {
-          const response = await fetch(`${apiBaseUrl}/eval/results/${dataset.filename}`);
+          const response = await fetchWithTimeout(`${apiBaseUrl}/eval/results/${dataset.filename}`);
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
@@ -119,6 +135,9 @@ const Generation = () => {
         }
       }));
 
+      if (!isMounted) {
+        return;
+      }
       setEvaluationSummaries({ ...EVALUATION_FALLBACKS, ...loadedSummaries });
       if (Object.keys(loadedSummaries).length === EVALUATION_DATASETS.length) {
         setEvaluationStatus({ type: 'info', message: '已加载课程 QA 与 LLM-Wiki 论文评测摘要。' });
@@ -136,6 +155,11 @@ const Generation = () => {
     };
 
     fetchEvaluationSummaries();
+    return () => {
+      isMounted = false;
+      controllers.forEach((controller) => controller.abort());
+      controllers.clear();
+    };
   }, []);
 
   /** @brief 加载选中的搜索结果文件内容。 */

@@ -22,6 +22,25 @@ const ChunkFile = () => {
   const [processingStatus, setProcessingStatus] = useState('');
   const [chunkedDocuments, setChunkedDocuments] = useState([]);
 
+  /** @brief 将重叠长度限制在合法的固定分块范围内。 */
+  const clampChunkOverlap = (overlap, size) => {
+    const normalizedSize = Number(size) || 0;
+    const maxOverlap = Math.max(0, normalizedSize - 1);
+    return Math.max(0, Math.min(Number(overlap) || 0, maxOverlap));
+  };
+
+  /** @brief 更新块大小时同步收敛重叠长度，避免发送非法参数。 */
+  const handleChunkSizeChange = (event) => {
+    const nextSize = Number(event.target.value);
+    setChunkSize(nextSize);
+    setChunkOverlap((prev) => clampChunkOverlap(prev, nextSize));
+  };
+
+  /** @brief 更新重叠长度时保持 chunkOverlap < chunkSize。 */
+  const handleChunkOverlapChange = (event) => {
+    setChunkOverlap(clampChunkOverlap(event.target.value, chunkSize));
+  };
+
   useEffect(() => {
     fetchLoadedDocuments();
   }, []);
@@ -327,7 +346,7 @@ const ChunkFile = () => {
                 <input
                   type="number"
                   value={chunkSize}
-                  onChange={(e) => setChunkSize(Number(e.target.value))}
+                  onChange={handleChunkSizeChange}
                   className="block w-full p-2 border rounded"
                   min="100"
                   max="5000"
@@ -336,7 +355,7 @@ const ChunkFile = () => {
                 <input
                   type="number"
                   value={chunkOverlap}
-                  onChange={(e) => setChunkOverlap(Number(e.target.value))}
+                  onChange={handleChunkOverlapChange}
                   className="block w-full p-2 border rounded"
                   min="0"
                   max={Math.max(0, chunkSize - 1)}

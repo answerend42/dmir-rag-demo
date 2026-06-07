@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 
 from fastapi.testclient import TestClient
@@ -107,6 +108,34 @@ def test_eval_result_endpoint_serves_frontend_summary():
     assert response.status_code == 200
     payload = response.json()
     assert set(payload["summary"]) == {"llm_only", "basic_rag", "optimized_rag"}
+    assert "answer_quality" not in response.text
+
+
+def test_eval_result_endpoint_filters_hidden_quality_label(tmp_path, monkeypatch):
+    """! @brief 评测结果端点必须递归过滤隐藏质量档次字段。"""
+    sys.modules.pop("main", None)
+    module = importlib.import_module("main")
+    monkeypatch.setattr(module, "eval_results_dir", tmp_path)
+    (tmp_path / "leaky.json").write_text(
+        json.dumps(
+            {
+                "answer_quality": 9,
+                "items": [
+                    {
+                        "keep": "ok",
+                        "metadata": {"answer_quality": 8, "source": "fixture"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    response = TestClient(module.app).get("/eval/results/leaky.json")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["metadata"]["source"] == "fixture"
     assert "answer_quality" not in response.text
 
 
