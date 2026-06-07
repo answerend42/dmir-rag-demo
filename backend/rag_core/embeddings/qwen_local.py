@@ -15,6 +15,8 @@ class QwenLocalEmbedder(Embedder):
         device: Optional[str] = None,
         batch_size: int = 32,
     ):
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         self.model_name = model_name
         self.batch_size = batch_size
         self.provider = "qwen_local"
@@ -49,7 +51,6 @@ class QwenLocalEmbedder(Embedder):
 
         results = []
         for i, vec in enumerate(embeddings):
-            # 兼容 numpy 数组和 list 两种情况
             if hasattr(vec, 'shape'):
                 dim = vec.shape[0]
                 vector = vec.tolist()

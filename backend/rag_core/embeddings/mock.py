@@ -4,6 +4,7 @@ import random
 import time
 from typing import List
 from rag_core.contracts import EmbeddingVector, Embedder
+import zlib
 
 
 class MockEmbedder(Embedder):
@@ -32,7 +33,7 @@ class MockEmbedder(Embedder):
                 provider=self.provider,
                 metadata={
                     "generation_mode": "deterministic_random",
-                    "text_hash": hash(text) & 0xffffffff,
+                    "text_hash": zlib.crc32(text.encode()) & 0xffffffff,
                     "batch_time_ms": round(elapsed_ms, 2),
                 }
             ))

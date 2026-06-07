@@ -49,3 +49,4 @@ def test_contract_batch_input_output(fixture_name, request):
         assert r.provider != ""
         assert isinstance(r.metadata, dict)
         assert len(r.metadata) > 0, "metadata should not be empty"
+        assert isinstance(r.item_id, str) and len(r.item_id) > 0, "item_id must be a non-empty string"

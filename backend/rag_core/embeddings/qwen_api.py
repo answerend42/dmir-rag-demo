@@ -13,13 +13,12 @@ class QwenApiEmbedder(Embedder):
     def __init__(
         self,
         model: str = "text-embedding-v2",
-        api_key: Optional[str] = None,
         api_base: str = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
         batch_size: int = 8,
         timeout: int = 30,
     ):
         self.model = model
-        self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
+        self.api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
         if not self.api_key:
             raise ValueError("QwenApiEmbedder 需要 API key。请设置环境变量 DASHSCOPE_API_KEY 或 QWEN_API_KEY。")
         if batch_size <= 0:

@@ -12,6 +12,9 @@ from rag_core.contracts.errors import ProviderUnavailable
 
 
 def cosine_similarity(v1, v2):
+    """计算余弦相似度，若维度不一致则抛出 ValueError。"""
+    if len(v1) != len(v2):
+        raise ValueError(f"向量维度不一致: {len(v1)} vs {len(v2)}")
     from math import sqrt
     dot = sum(a * b for a, b in zip(v1, v2))
     n1 = sqrt(sum(a * a for a in v1))
@@ -71,8 +74,11 @@ def main():
         print()
 
     if len(results) >= 2:
-        sim = cosine_similarity(results[0].vector, results[1].vector)
-        print(f"前两条文本的余弦相似度: {sim:.4f}")
+        try:
+            sim = cosine_similarity(results[0].vector, results[1].vector)
+            print(f"前两条文本的余弦相似度: {sim:.4f}")
+        except ValueError as e:
+            print(f"无法计算相似度: {e}")
 
 
 if __name__ == "__main__":
