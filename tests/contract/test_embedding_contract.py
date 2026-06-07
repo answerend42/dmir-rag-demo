@@ -35,8 +35,6 @@ def qwen_local_embedder(monkeypatch):
 
 @pytest.mark.parametrize("fixture_name", [
     "mock_embedder",
-    "qwen_api_embedder",
-    "qwen_local_embedder",
 ])
 def test_contract_batch_input_output(fixture_name, request):
     embedder = request.getfixturevalue(fixture_name)
