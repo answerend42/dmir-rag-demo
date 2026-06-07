@@ -18,16 +18,33 @@ def mock_embedder():
 @pytest.fixture
 def qwen_api_embedder(monkeypatch):
     """! @brief 构造 mock HTTP 响应下的 Qwen API embedder。"""
-    import requests_mock
+    import requests
+
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
     embedder = QwenApiEmbedder()
-    with requests_mock.Mocker() as m:
-        def callback(request, context):
-            texts = request.json()["input"]["texts"]
+
+    class MockResponse:
+        """! @brief requests 响应替身。"""
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            """! @brief mock 响应不抛出 HTTP 错误。"""
+            pass
+
+        def json(self):
+            """! @brief 返回 DashScope 风格 embedding 响应。"""
+            texts = self._payload["input"]["texts"]
             embeddings = [{"text_index": i, "embedding": [0.1] * 1536} for i in range(len(texts))]
             return {"output": {"embeddings": embeddings}}
-        m.post(embedder.api_base, json=callback)
-        yield embedder
+
+    def mock_post(_url, headers, json, timeout):
+        """! @brief 替代 requests.post。"""
+        return MockResponse(json)
+
+    monkeypatch.setattr(requests, "post", mock_post)
+    return embedder
 
 
 @pytest.fixture
@@ -46,6 +63,8 @@ def qwen_local_embedder(monkeypatch):
 
 @pytest.mark.parametrize("fixture_name", [
     "mock_embedder",
+    "qwen_api_embedder",
+    "qwen_local_embedder",
 ])
 def test_contract_batch_input_output(fixture_name, request):
     """! @brief embed_batch 输出必须满足 EmbeddingVector 契约。"""

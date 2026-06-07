@@ -98,7 +98,7 @@ def main() -> int:
 def _resolve_modes(raw_modes: str) -> list[RagMode]:
     """! @brief 解析 all 或逗号分隔的 RAG 模式。"""
     if raw_modes == "all":
-        return [RagMode.LLM_ONLY, RagMode.BASIC_RAG, RagMode.OPTIMIZED_RAG]
+        return list(RagMode)
     modes: list[RagMode] = []
     for item in raw_modes.split(","):
         name = item.strip()

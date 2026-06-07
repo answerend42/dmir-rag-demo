@@ -49,39 +49,38 @@ class SearchService:
         ]
 
     def list_collections(self, provider: str = VectorDBProvider.CHROMA.value) -> List[Dict[str, Any]]:
-        """
-        获取指定向量数据库中的所有集合
-
-        参数:
-            provider (str): 向量数据库提供商，默认为Milvus
-
-        返回:
-            List[Dict[str, Any]]: 集合信息列表，包含id、名称和实体数量
-
-        异常:
-            Exception: 连接或查询集合时发生错误
+        """! @brief 获取指定向量数据库中的所有集合。
+        @param provider 向量数据库提供方，支持 chroma 或 milvus。
+        @return 集合信息列表，包含 id、name 和 count。
         """
         try:
-            # client = MilvusClient(
-            #     uri="http://localhost:19530",
-            #     token="root:Milvus",
-            #     db_name=self.milvus_uri
-            # )
-            logger.info(f"into list collection")
+            provider_value = str(provider).strip().lower()
+            logger.info(f"List collections for provider: {provider_value}")
+
+            if provider_value == VectorDBProvider.MILVUS.value:
+                connections.connect(alias="default", uri=MILVUS_CONFIG["uri"])
+                try:
+                    return [
+                        {"id": name, "name": name, "count": 0}
+                        for name in utility.list_collections()
+                    ]
+                finally:
+                    connections.disconnect("default")
+
+            if provider_value != VectorDBProvider.CHROMA.value:
+                return []
 
             collections = []
             collection_names = self.client.list_collections()
-            print(collection_names)
 
             for sample in collection_names:
-                name=sample.name
+                name = sample.name if hasattr(sample, "name") else str(sample)
                 try:
-                    #collection = self.client.get_or_create_collection(name)
                     collection = self.client.get_or_create_collection(name)
                     collections.append({
                         "id": name,
                         "name": name,
-                        "count": 1      #collection.num_entities
+                        "count": collection.count() if hasattr(collection, "count") else 0,
                     })
                 except Exception as e:
                     logger.error(f"Error getting info for collection {name}: {str(e)}")
@@ -91,8 +90,6 @@ class SearchService:
         except Exception as e:
             logger.error(f"Error listing collections: {str(e)}")
             raise
-        # finally:
-        #     connections.disconnect("default")
 
     def save_search_results(self, query: str, collection_id: str, results: List[Dict[str, Any]]) -> str:
         """

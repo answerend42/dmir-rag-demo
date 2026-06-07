@@ -1,6 +1,6 @@
 {
   "dataset_type": "course_qa",
-  "generated_at": "2026-06-07T03:17:37.104814+00:00",
+  "generated_at": "2026-06-07T03:32:33.821140+00:00",
   "question_count": 5,
   "metadata": {
     "dataset_path": "sample_data/course_qa_public.json",
@@ -14,7 +14,7 @@
       "refused": 0,
       "citation_hit": 0.0,
       "groundedness": 0.0,
-      "avg_latency_ms": 0.781,
+      "avg_latency_ms": 0.756,
       "label_distribution": {},
       "note": "不使用检索证据，用于展示纯模型盲区。"
     },
@@ -25,7 +25,7 @@
       "refused": 0,
       "citation_hit": 1.0,
       "groundedness": 1.0,
-      "avg_latency_ms": 0.903,
+      "avg_latency_ms": 0.897,
       "label_distribution": {
         "0": 3,
         "1": 3,
@@ -45,7 +45,7 @@
       "refused": 0,
       "citation_hit": 1.0,
       "groundedness": 1.0,
-      "avg_latency_ms": 0.889,
+      "avg_latency_ms": 0.93,
       "label_distribution": {
         "0": 3,
         "1": 3,
@@ -109,7 +109,7 @@
         "answerable": true,
         "cited": false,
         "refused": false,
-        "latency_ms": 0.833,
+        "latency_ms": 0.816,
         "retrieved_count": 0,
         "citation_count": 0,
         "label_distribution": {},
@@ -121,7 +121,7 @@
         "answerable": true,
         "cited": false,
         "refused": false,
-        "latency_ms": 0.853,
+        "latency_ms": 0.788,
         "retrieved_count": 0,
         "citation_count": 0,
         "label_distribution": {},
@@ -133,7 +133,7 @@
         "answerable": true,
         "cited": false,
         "refused": false,
-        "latency_ms": 0.759,
+        "latency_ms": 0.716,
         "retrieved_count": 0,
         "citation_count": 0,
         "label_distribution": {},
@@ -145,7 +145,7 @@
         "answerable": true,
         "cited": false,
         "refused": false,
-        "latency_ms": 0.742,
+        "latency_ms": 0.733,
         "retrieved_count": 0,
         "citation_count": 0,
         "label_distribution": {},
@@ -157,7 +157,7 @@
         "answerable": true,
         "cited": false,
         "refused": false,
-        "latency_ms": 0.718,
+        "latency_ms": 0.727,
         "retrieved_count": 0,
         "citation_count": 0,
         "label_distribution": {},
@@ -171,7 +171,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.856,
+        "latency_ms": 0.874,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -187,7 +187,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.849,
+        "latency_ms": 0.879,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -203,7 +203,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 1.018,
+        "latency_ms": 0.99,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -219,7 +219,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.93,
+        "latency_ms": 0.888,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -235,7 +235,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.86,
+        "latency_ms": 0.856,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -253,7 +253,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.925,
+        "latency_ms": 1.041,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -269,7 +269,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.863,
+        "latency_ms": 0.99,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -285,7 +285,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.949,
+        "latency_ms": 0.89,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {
@@ -317,7 +317,7 @@
         "answerable": true,
         "cited": true,
         "refused": false,
-        "latency_ms": 0.836,
+        "latency_ms": 0.858,
         "retrieved_count": 3,
         "citation_count": 3,
         "label_distribution": {

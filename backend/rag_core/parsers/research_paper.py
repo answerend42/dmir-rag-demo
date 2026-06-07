@@ -36,9 +36,14 @@ class MarkdownPaperParser:
         path = Path(file_path)
         if not path.exists():
             raise EmptyCorpus(f"论文文件不存在: {file_path}")
+        if not path.is_file():
+            raise EmptyCorpus(f"论文路径不是普通文件: {file_path}")
         if path.suffix.lower() == ".pdf":
             return self._parse_pdf(path)
-        text = path.read_text(encoding="utf-8")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise EmptyCorpus(f"无法读取论文文件: {file_path}") from exc
         return parse_markdown_paper_text(text=text, title=path.stem, source=str(path))
 
     def _parse_pdf(self, path: Path) -> ParsedDocument:

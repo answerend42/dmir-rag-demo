@@ -4,6 +4,9 @@
 
 from pathlib import Path
 
+import pytest
+
+from rag_core.contracts.errors import EmptyCorpus
 from rag_core.chunkers import ResearchPaperChunker
 from rag_core.contracts.enums import BlockType
 from rag_core.contracts.models import Chunk, ParsedDocument
@@ -40,9 +43,7 @@ def test_markdown_paper_parser_rejects_missing_file(tmp_path):
     """! @brief 缺失论文文件应抛出 EmptyCorpus 类错误。"""
     missing_path = tmp_path / "missing.md"
 
-    try:
+    with pytest.raises(EmptyCorpus) as exc_info:
         MarkdownPaperParser().parse(str(missing_path))
-    except Exception as exc:
-        assert "论文文件不存在" in str(exc)
-    else:
-        raise AssertionError("缺失文件不应被解析成功")
+
+    assert "论文文件不存在" in str(exc_info.value)

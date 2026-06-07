@@ -108,3 +108,10 @@ def test_eval_result_endpoint_serves_frontend_summary():
     payload = response.json()
     assert set(payload["summary"]) == {"llm_only", "basic_rag", "optimized_rag"}
     assert "answer_quality" not in response.text
+
+
+def test_eval_result_endpoint_rejects_path_traversal():
+    """! @brief 评测结果端点必须拒绝路径穿越文件名。"""
+    response = _client().get("/eval/results/%2E%2E%2Flabels%2Fcourse_qa_quality_labels.json")
+
+    assert response.status_code in {400, 404}

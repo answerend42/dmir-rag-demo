@@ -68,17 +68,22 @@ async def rag_answer(request: RagRequest):
 @app.get("/eval/results/{filename}")
 async def get_eval_result(filename: str):
     """! @brief 读取 scripts/run_eval.py 生成的离线评测结果。
-    @param filename 结果文件名，仅允许 json/csv/md。
+    @param filename 结果文件名, 仅允许 json/csv/md。
     @return JSON 结果或文本结果。
     @throws HTTPException 文件名非法或结果不存在时抛出。
     """
-    if "/" in filename or "\\" in filename or filename.startswith("."):
-        raise HTTPException(status_code=400, detail="非法评测结果文件名")
     suffix = Path(filename).suffix.lower()
     if suffix not in {".json", ".csv", ".md"}:
         raise HTTPException(status_code=400, detail="仅支持读取 json/csv/md 评测结果")
 
-    path = eval_results_dir / filename
+    eval_dir = eval_results_dir.resolve()
+    path = (eval_dir / filename).resolve()
+    try:
+        path.relative_to(eval_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="非法评测结果文件名") from exc
+    if path.name.startswith("."):
+        raise HTTPException(status_code=400, detail="非法评测结果文件名")
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"评测结果不存在: {filename}")
 
@@ -364,7 +369,6 @@ async def get_providers():
 
 @app.get("/collections")
 async def get_collections(
-   # provider: VectorDBProvider = Query(default=VectorDBProvider.MILVUS)
     provider: str = Query(default="chroma")
 ):
     """! @brief 获取指定向量数据库中的集合."""
