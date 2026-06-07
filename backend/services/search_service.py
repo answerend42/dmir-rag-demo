@@ -49,39 +49,38 @@ class SearchService:
         ]
 
     def list_collections(self, provider: str = VectorDBProvider.CHROMA.value) -> List[Dict[str, Any]]:
-        """
-        获取指定向量数据库中的所有集合
-
-        参数:
-            provider (str): 向量数据库提供商，默认为Milvus
-
-        返回:
-            List[Dict[str, Any]]: 集合信息列表，包含id、名称和实体数量
-
-        异常:
-            Exception: 连接或查询集合时发生错误
+        """! @brief 获取指定向量数据库中的所有集合。
+        @param provider 向量数据库提供方，支持 chroma 或 milvus。
+        @return 集合信息列表，包含 id、name 和 count。
         """
         try:
-            # client = MilvusClient(
-            #     uri="http://localhost:19530",
-            #     token="root:Milvus",
-            #     db_name=self.milvus_uri
-            # )
-            logger.info(f"into list collection")
+            provider_value = str(provider).strip().lower()
+            logger.info(f"List collections for provider: {provider_value}")
+
+            if provider_value == VectorDBProvider.MILVUS.value:
+                connections.connect(alias="default", uri=MILVUS_CONFIG["uri"])
+                try:
+                    return [
+                        {"id": name, "name": name, "count": 0}
+                        for name in utility.list_collections()
+                    ]
+                finally:
+                    connections.disconnect("default")
+
+            if provider_value != VectorDBProvider.CHROMA.value:
+                return []
 
             collections = []
             collection_names = self.client.list_collections()
-            print(collection_names)
 
             for sample in collection_names:
-                name=sample.name
+                name = sample.name if hasattr(sample, "name") else str(sample)
                 try:
-                    #collection = self.client.get_or_create_collection(name)
                     collection = self.client.get_or_create_collection(name)
                     collections.append({
                         "id": name,
                         "name": name,
-                        "count": 1      #collection.num_entities
+                        "count": collection.count() if hasattr(collection, "count") else 0,
                     })
                 except Exception as e:
                     logger.error(f"Error getting info for collection {name}: {str(e)}")
@@ -91,8 +90,6 @@ class SearchService:
         except Exception as e:
             logger.error(f"Error listing collections: {str(e)}")
             raise
-        # finally:
-        #     connections.disconnect("default")
 
     def save_search_results(self, query: str, collection_id: str, results: List[Dict[str, Any]]) -> str:
         """
@@ -135,12 +132,31 @@ class SearchService:
             logger.error(f"Error saving search results: {str(e)}")
             raise
 
+    @staticmethod
+    def _get_sample_metadata(collection) -> Dict[str, Any]:
+        """! @brief 从 Chroma 集合读取一条已入库 metadata，用于恢复 embedding 配置。
+        @param collection Chroma collection 对象。
+        @return 第一条非空 metadata。
+        @throws ValueError 集合为空或没有 embedding 配置时抛出。
+        """
+        sample = collection.get(limit=1, include=["metadatas"])
+        metadatas = sample.get("metadatas") or []
+        if metadatas and isinstance(metadatas[0], list):
+            metadatas = metadatas[0]
+        if not metadatas:
+            raise ValueError("集合为空或缺少 metadata。")
+
+        metadata = metadatas[0]
+        if not metadata.get("embedding_provider") or not metadata.get("embedding_model"):
+            raise ValueError("集合 metadata 缺少 embedding_provider 或 embedding_model。")
+        return metadata
+
     async def search(self,
                      query: str,
                      collection_id: str,
                      top_k: int = 3,
-                     threshold: float = 0.7,
-                     word_count_threshold: int = 20,
+                     threshold: float = 0.3,
+                     word_count_threshold: int = 0,
                      save_results: bool = False) -> Dict[str, Any]:
         """! @brief 执行向量搜索，并可选择持久化结果。
         @param query 用户查询文本。
@@ -157,8 +173,8 @@ class SearchService:
             query (str): 搜索查询文本
             collection_id (str): 要搜索的集合ID
             top_k (int): 返回的最大结果数量，默认为3
-            threshold (float): 相似度阈值，低于此值的结果将被过滤，默认为0.7
-            word_count_threshold (int): 文本字数阈值，低于此值的结果将被过滤，默认为20
+            threshold (float): 相似度阈值，低于此值的结果将被过滤，默认为0.3
+            word_count_threshold (int): 文本字数阈值，低于此值的结果将被过滤，默认为0
             save_results (bool): 是否保存搜索结果，默认为False
 
         返回:
@@ -191,17 +207,14 @@ class SearchService:
 
             logger.info(f"query: {query}")
 
-            sample_entity =collection.query(
-                query_texts=[query],
-                n_results=1,
-            )
+            sample_metadata = self._get_sample_metadata(collection)
 
             # 使用collection中存储的配置创建查询向量
             logger.info("Creating query embedding")
             query_embedding = self.embedding_service.create_single_embedding(
                 query,
-                provider=sample_entity['metadatas'][0][0].get('embedding_provider'),
-                model=sample_entity['metadatas'][0][0].get('embedding_model')
+                provider=sample_metadata.get('embedding_provider'),
+                model=sample_metadata.get('embedding_model')
             )
             logger.info(f"Query embedding created with dimension: {len(query_embedding)}")
 
@@ -219,8 +232,9 @@ class SearchService:
 
             for hit in range(results_count):
                 hit_score=1-results['distances'][0][hit]
-                logger.info(f"Processing hit - Score: {hit_score}, Word Count: {results['metadatas'][0][hit].get('word_count')}")
-                if hit_score >= threshold:
+                word_count = int(results['metadatas'][0][hit].get('word_count') or 0)
+                logger.info(f"Processing hit - Score: {hit_score}, Word Count: {word_count}")
+                if hit_score >= threshold and word_count >= word_count_threshold:
                     processed_results.append({
                         "text": results.get('documents')[0][hit],
                         "score": float(hit_score),

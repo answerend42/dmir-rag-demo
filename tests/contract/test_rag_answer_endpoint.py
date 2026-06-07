@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 
 from fastapi.testclient import TestClient
@@ -98,3 +99,48 @@ def test_rag_answer_rejects_real_provider_until_adapters_land():
 
     assert response.status_code == 400
     assert "provider=mock" in response.json()["detail"]
+
+
+def test_eval_result_endpoint_serves_frontend_summary():
+    """! @brief 前端 dashboard 可读取 run_eval.py 生成的课程 QA 评测摘要。"""
+    response = _client().get("/eval/results/course_qa_eval.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload["summary"]) == {"llm_only", "basic_rag", "optimized_rag"}
+    assert "answer_quality" not in response.text
+
+
+def test_eval_result_endpoint_filters_hidden_quality_label(tmp_path, monkeypatch):
+    """! @brief 评测结果端点必须递归过滤隐藏质量档次字段。"""
+    sys.modules.pop("main", None)
+    module = importlib.import_module("main")
+    monkeypatch.setattr(module, "eval_results_dir", tmp_path)
+    (tmp_path / "leaky.json").write_text(
+        json.dumps(
+            {
+                "answer_quality": 9,
+                "items": [
+                    {
+                        "keep": "ok",
+                        "metadata": {"answer_quality": 8, "source": "fixture"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    response = TestClient(module.app).get("/eval/results/leaky.json")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["metadata"]["source"] == "fixture"
+    assert "answer_quality" not in response.text
+
+
+def test_eval_result_endpoint_rejects_path_traversal():
+    """! @brief 评测结果端点必须拒绝路径穿越文件名。"""
+    response = _client().get("/eval/results/%2E%2E%2Flabels%2Fcourse_qa_quality_labels.json")
+
+    assert response.status_code in {400, 404}

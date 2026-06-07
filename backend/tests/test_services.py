@@ -52,6 +52,17 @@ def test_chunking_service_methods_and_errors():
     fixed = service.chunk_text("", "fixed_size", metadata, sample_page_map(), chunk_size=8)
     assert fixed["chunking_method"] == "fixed_size"
     assert fixed["total_chunks"] >= 4
+    overlapped = service.chunk_text(
+        "",
+        "fixed_size",
+        metadata,
+        [{"page": 1, "text": "alpha beta gamma delta epsilon"}],
+        chunk_size=11,
+        chunk_overlap=10,
+    )
+    assert overlapped["chunk_overlap"] == 10
+    assert overlapped["chunks"][0]["content"].endswith("beta")
+    assert overlapped["chunks"][1]["content"].startswith("beta")
 
     paragraphs = service.chunk_text("", "by_paragraphs", metadata, [{"page": 1, "text": "A\n\nB"}])
     assert [c["content"] for c in paragraphs["chunks"]] == ["A", "B"]
@@ -63,6 +74,8 @@ def test_chunking_service_methods_and_errors():
         service.chunk_text("", "unknown", metadata, sample_page_map())
     with pytest.raises(ValueError):
         service.chunk_text("", "by_pages", metadata, None)
+    with pytest.raises(ValueError):
+        service.chunk_text("", "fixed_size", metadata, sample_page_map(), chunk_size=100, chunk_overlap=100)
 
 
 def test_parsing_service_methods_and_errors():
@@ -195,6 +208,10 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
     assert hf_embeddings[0]["embedding"] == [0.1, 0.2, 0.3]
     assert service.create_single_embedding("hello", "huggingface", "fake") == [0.1, 0.2, 0.3]
 
+    qwen_embeddings, _ = service.create_embeddings(input_data, EmbeddingConfig("qwen_api", "text-embedding-v2"))
+    assert qwen_embeddings[1]["embedding"] == [1.0, 2.0]
+    assert qwen_embeddings[0]["metadata"]["embedding_provider"] == "qwen_api"
+
     monkeypatch.chdir(tmp_path)
     saved = service.save_embeddings("doc_by_pages_1.json", hf_embeddings)
     saved_data = json.loads(Path(saved).read_text(encoding="utf-8"))
@@ -222,9 +239,20 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
+    class FakeQwenApiEmbedder:
+        def __init__(self, model):
+            self.model = model
+
+        def embed_batch(self, texts):
+            return [SimpleNamespace(vector=[float(i), float(i + 1)]) for i, _ in enumerate(texts)]
+
+        def embed_query(self, text):
+            return SimpleNamespace(vector=[0.4, 0.5, 0.6])
+
     monkeypatch.setattr(embedding_module, "OpenAIEmbeddings", FakeOpenAIEmbeddings)
     monkeypatch.setattr(embedding_module, "BedrockEmbeddings", FakeBedrockEmbeddings)
     monkeypatch.setattr(embedding_module, "HuggingFaceEmbeddings", FakeHFEmbeddings)
+    monkeypatch.setattr(embedding_module, "QwenApiEmbedder", FakeQwenApiEmbedder)
     monkeypatch.setattr(embedding_module.boto3, "client", lambda **kwargs: "bedrock-client")
     monkeypatch.setattr(embedding_module, "get_huggingface_model_path", lambda name: f"local/{name}")
     monkeypatch.setattr(EmbeddingFactory, "create_embedding_function", staticmethod(original_create_embedding_function))
@@ -232,6 +260,9 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
     assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("openai", "m")), FakeOpenAIEmbeddings)
     assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("bedrock", "m")), FakeBedrockEmbeddings)
     assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("huggingface", "m")), FakeHFEmbeddings)
+    qwen_function = EmbeddingFactory.create_embedding_function(EmbeddingConfig("qwen_api", "m"))
+    assert qwen_function.embed_documents(["a", "b"]) == [[0.0, 1.0], [1.0, 2.0]]
+    assert qwen_function.embed_query("query") == [0.4, 0.5, 0.6]
     with pytest.raises(ValueError):
         EmbeddingFactory.create_embedding_function(EmbeddingConfig("bad", "m"))
 
@@ -253,6 +284,7 @@ class FakeChromaCollection:
     def __init__(self, name="collection"):
         self.name = name
         self.added = []
+        self.created_kwargs = {}
 
     def add(self, **kwargs):
         self.added.append(kwargs)
@@ -261,8 +293,7 @@ class FakeChromaCollection:
         return 1
 
     def query(self, **kwargs):
-        if "query_texts" in kwargs:
-            return {"metadatas": [[{"embedding_provider": "huggingface", "embedding_model": "fake"}]]}
+        assert "query_texts" not in kwargs
         return {
             "ids": [["1", "2"]],
             "distances": [[0.1, 0.8]],
@@ -282,8 +313,8 @@ class FakeChromaCollection:
             ]],
         }
 
-    def get(self):
-        return {"metadatas": [{"field": "value"}]}
+    def get(self, **kwargs):
+        return {"metadatas": [{"embedding_provider": "huggingface", "embedding_model": "fake"}]}
 
 
 class FakeChromaClient:
@@ -296,6 +327,7 @@ class FakeChromaClient:
 
     def get_or_create_collection(self, name, **kwargs):
         self.collection.name = name
+        self.collection.created_kwargs = kwargs
         return self.collection
 
     def get_collection(self, name):
@@ -339,6 +371,9 @@ def test_vector_store_chroma_helpers_and_milvus_paths(tmp_path, monkeypatch):
     chroma_result = service.index_embeddings(str(data_path), VectorDBConfig("chroma", "hnsw"))
     assert chroma_result["index_size"] == 1
     assert fake_client.collection.added
+    assert "embedding_function" not in fake_client.collection.created_kwargs
+    assert "vector" not in fake_client.collection.added[0]["metadatas"][0]
+    assert fake_client.collection.added[0]["metadatas"][0]["vector_dimension"] == 3
 
     assert service.list_collections(VectorDBProvider.CHROMA)[0].name == "collection"
     assert service.delete_collection(VectorDBProvider.CHROMA, "collection") is True
@@ -419,6 +454,9 @@ async def test_search_service_collections_search_and_save(tmp_path, monkeypatch)
     result = await service.search("query", "collection", top_k=2, threshold=0.5, save_results=True)
     assert len(result["results"]) == 1
     assert result["saved_filepath"].endswith(".json")
+
+    filtered_by_words = await service.search("query", "collection", top_k=2, threshold=0.5, word_count_threshold=20)
+    assert filtered_by_words == {"results": []}
 
     no_hits = await service.search("query", "collection", top_k=2, threshold=0.95, save_results=True)
     assert no_hits == {"results": []}

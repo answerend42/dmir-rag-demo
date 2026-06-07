@@ -1,0 +1,646 @@
+{
+  "dataset_type": "paper",
+  "generated_at": "2026-06-07T04:24:01.810022+00:00",
+  "question_count": 26,
+  "metadata": {
+    "fixture_path": "sample_data/papers/paper_eval_fixture.json",
+    "target_paper": {
+      "paper_id": "llm-wiki-2605.25480",
+      "title": "Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki",
+      "authors": [
+        "Haoliang Ming",
+        "Feifei Li",
+        "Xiaoqing Wu",
+        "Wenhui Que"
+      ],
+      "affiliation": "WeChat, Tencent Inc., Beijing, China",
+      "year": 2026,
+      "arxiv_id": "2605.25480",
+      "version": "v2",
+      "submitted_at": "2026-05-25",
+      "versioned_at": "2026-05-26",
+      "source_path": "sample_data/papers/llm_wiki_retrieval_as_reasoning.md",
+      "url": "https://arxiv.org/abs/2605.25480",
+      "pdf_url": "https://arxiv.org/pdf/2605.25480",
+      "pdf_sha256": "5752b92a793be1f80aa463dcc3fb123b6524df28c223c53bbf1043cc0855806b",
+      "accessed_at": "2026-06-07",
+      "selection_reason": "论文在当前日期前一个月内发布，主题直接相关 RAG/agentic retrieval，包含作者单位、工具接口、Error Book、AuthTrace 反例、消融和表格数字等裸模型容易未知或混淆的细节。"
+    },
+    "distractor_papers": [
+      {
+        "paper_id": "graphrag-2404.16130",
+        "title": "From Local to Global: A Graph RAG Approach to Query-Focused Summarization",
+        "year": 2024,
+        "url": "https://arxiv.org/abs/2404.16130",
+        "purpose": "相关 graph-enhanced RAG baseline，用于对比 community summaries 与 LLM-Wiki 的 Wiki pages + links。"
+      },
+      {
+        "paper_id": "lightrag-2025",
+        "title": "LightRAG: Simple and Fast Retrieval-Augmented Generation",
+        "year": 2025,
+        "purpose": "最强公开 multi-hop QA baseline 之一，用于对比 entity/relation vectors 与 LLM-Wiki 的可遍历结构。"
+      },
+      {
+        "paper_id": "hipporag2-2025",
+        "title": "From RAG to Memory: Non-Parametric Continual Learning for Large Language Models",
+        "year": 2025,
+        "purpose": "AuthTrace 上 Single-doc 表现强于 LLM-Wiki 的关键干扰方法，用于避免误写成 LLM-Wiki 全列领先。"
+      },
+      {
+        "paper_id": "raptor-2024",
+        "title": "RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval",
+        "year": 2024,
+        "purpose": "summary-tree 检索范式，用于对比压缩摘要树与显式 Wiki 链接结构。"
+      }
+    ]
+  },
+  "summary": {
+    "llm_only": {
+      "total": 26,
+      "answerable": 26,
+      "cited": 0,
+      "refused": 0,
+      "citation_hit": 0.0,
+      "groundedness": 0.0,
+      "avg_latency_ms": 2.159,
+      "label_distribution": {},
+      "note": "不使用检索证据，用于展示纯模型盲区。"
+    },
+    "basic_rag": {
+      "total": 26,
+      "answerable": 26,
+      "cited": 26,
+      "refused": 0,
+      "citation_hit": 1.0,
+      "groundedness": 1.0,
+      "avg_latency_ms": 2.246,
+      "label_distribution": {},
+      "note": "dense top-k 检索后直接生成。"
+    },
+    "optimized_rag": {
+      "total": 26,
+      "answerable": 26,
+      "cited": 26,
+      "refused": 0,
+      "citation_hit": 1.0,
+      "groundedness": 1.0,
+      "avg_latency_ms": 2.319,
+      "label_distribution": {},
+      "note": "预留 query rewrite / rerank / grounded prompt，对证据不足场景更谨慎。"
+    }
+  },
+  "demo_questions": [
+    {
+      "question_id": "paper-q01",
+      "question": "LLM-Wiki 论文的完整标题、arXiv 编号和 v2 日期是什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 1,
+            "section": "摘要与元信息",
+            "hint": "标题、2605.25480、2026-05-26"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q02",
+      "question": "这篇论文的作者和单位是什么？为什么 Feifei Li 容易被模型混淆？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 1,
+            "section": "摘要与元信息",
+            "hint": "Haoliang Ming、Feifei Li、Xiaoqing Wu、Wenhui Que；WeChat, Tencent Inc., Beijing, China"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q03",
+      "question": "论文用 The Gamecock 和 Monster A Go-Go 的例子说明了什么检索问题？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 1,
+            "section": "动机与例子",
+            "hint": "电影页可能被找回，但导演传记页因为语义距离较远而漏检"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q04",
+      "question": "Retrieval-as-Lookup 在论文中被指出有哪三个限制？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 1,
+            "section": "Retrieval-as-Lookup 的三个限制",
+            "hint": "扁平匹配、一次性黑盒检索、缺少持续自我修正"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q05",
+      "question": "论文提出的 Q1、Q2、Q3 分别关注什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 2,
+            "section": "研究问题与贡献",
+            "hint": "编译式知识组织、agent-controlled traversal、Error Book 修复错误"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q06",
+      "question": "Retrieval-as-Reasoning 的三个原则是什么？LLM-Wiki 分别用什么机制实现？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 3,
+            "section": "Retrieval-as-Reasoning 三个原则",
+            "hint": "Compilability、Composability、Evolvability；Wiki-structured knowledge、compositional retrieval、Error Book"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q07",
+      "question": "LLM-Wiki 的 Wiki-Structured Knowledge 包含哪些组成部分和页面字段？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 3,
+            "section": "Wiki-Structured Knowledge",
+            "hint": "directory indices、structured Markdown pages、source archives、metadata、aliases、tags、facts、source references、bidirectional wikilinks"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q08",
+      "question": "wiki_search(query) 会优先利用哪些信号？它返回什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 3,
+            "section": "工具接口",
+            "hint": "页面名、别名、标签、描述；候选页面和 metadata"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q09",
+      "question": "wiki_read(paths) 读取什么内容？为什么它有助于后续多跳遍历？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 3,
+            "section": "工具接口",
+            "hint": "读取 _index.md 或完整页面；页面间链接作为后续遍历入口"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q10",
+      "question": "LLM-Wiki 的 Direct access、Bridge queries、Exploratory browsing 三种遍历策略分别适合什么问题？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 3,
+            "section": "遍历策略",
+            "hint": "已知实体、A 到 B 再到答案、开放式或枚举式查询"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q11",
+      "question": "Error Book 的作用是什么？它和一次性后处理有什么不同？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 4,
+            "section": "Error Book 概念",
+            "hint": "持久 self-correction，检测复发错误、归因根因、形成约束、修复页面"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q12",
+      "question": "Error Book 的七类错误是什么？哪些属于结构有效性，哪些属于内容一致性？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 4,
+            "section": "Error Book 错误类别",
+            "hint": "Dangling Links、Incomplete Pages、Malformed Refs、Unseen Overwrite、Index Inconsistency、Unsupported Facts、Cross-Page Contradictions"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q13",
+      "question": "Dangling Links 和 Malformed Refs 在错误分布中大约占多少？这说明什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 4,
+            "section": "Error Book 错误类别",
+            "hint": "Dangling Links 29.1% 到 63.8%；Malformed Refs 18.9% 到 28.5%；链接和引用验证关键"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q14",
+      "question": "Error Book 的五阶段生命周期按顺序是什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 5,
+            "section": "Error Book 五阶段生命周期",
+            "hint": "Discover、Attribute、Constrain、Inject、Verify & Close"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q15",
+      "question": "Error Book 持久化成什么文件？每个条目记录哪些信息？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 5,
+            "section": "Error Book 五阶段生命周期",
+            "hint": "error_book.yaml；错误现象、根因、约束规则、验证方法、open/closed 状态"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q16",
+      "question": "LLM-Wiki 的两层修复机制分别处理什么问题？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 5,
+            "section": "两层修复机制",
+            "hint": "Code Auto-fix 处理结构错误；LLM Periodic Fix 处理需要推理的语义错误"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q17",
+      "question": "论文在哪些 benchmark 上评估？baseline 包括哪些？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 6,
+            "section": "实验设置",
+            "hint": "HotpotQA、MuSiQue、2WikiMultiHopQA、AuthTrace；BM25、Dense、RAPTOR、GraphRAG、LightRAG、HippoRAG 2"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q18",
+      "question": "Table 1 中 LLM-Wiki 在 HotpotQA、MuSiQue、2WikiMultiHopQA 上的 F1/EM 是多少？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 7,
+            "section": "Table 1 主结果",
+            "hint": "0.839/0.710，0.739/0.634，0.911/0.854"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q19",
+      "question": "Table 1 中 LLM-Wiki 相比 LightRAG 在三个 multi-hop benchmark 上 F1 分别高多少？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 7,
+            "section": "Table 1 主结果",
+            "hint": "HotpotQA 0.839 vs 0.819；MuSiQue 0.739 vs 0.659；2Wiki 0.911 vs 0.847"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q20",
+      "question": "AuthTrace 上 LLM-Wiki 是否四列都超过 HippoRAG 2？请指出反例和总体结果。",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 8,
+            "section": "AuthTrace 结果",
+            "hint": "Single-doc 上 HippoRAG 2 78.3 高于 LLM-Wiki 76.0；All 上 LLM-Wiki 70.4 高于 HippoRAG 2 68.3"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q21",
+      "question": "AuthTrace 的 Low multi-doc 和 High multi-doc 上，LLM-Wiki 比 HippoRAG 2 高多少？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 8,
+            "section": "AuthTrace 结果",
+            "hint": "Low 64.6 vs 59.6，高 5.0；High 55.4 vs 46.5，高 8.9"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q22",
+      "question": "Table 3 消融实验中 full、w/o Wiki Structure、w/o Progressive Traversal、w/o Error Book 的三组 F1 分别是多少？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 8,
+            "section": "消融实验",
+            "hint": "0.839/0.739/0.911；0.778/0.669/0.844；0.722/0.601/0.789；0.801/0.699/0.877"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q23",
+      "question": "消融实验里去掉哪个组件影响最大？为什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 9,
+            "section": "消融解释",
+            "hint": "w/o Progressive Traversal 影响最大，因为 agent 不能利用中间观察继续访问新页面"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q24",
+      "question": "Table 4 中 GraphRAG、HippoRAG 2、LightRAG 和 LLM-Wiki 的 index product 与瓶颈分别是什么？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 11,
+            "section": "Table 4 范式对比",
+            "hint": "community summaries、KG triples、entity/relation vectors、Wiki pages + links；摘要丢细节、triples 有损、难发现中间实体、一次性编译成本"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q25",
+      "question": "2WikiMHQA 类型细分里，LLM-Wiki 在 compositional 问题上比 Dense RAG 和 LightRAG 高多少？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 13,
+            "section": "2WikiMHQA 类型细分",
+            "hint": "LLM-Wiki 0.833；比 Dense RAG 高 15.6 F1 points，比 LightRAG 高 7.3 F1 points"
+          }
+        ]
+      }
+    },
+    {
+      "question_id": "paper-q26",
+      "question": "Table 10 的效率分析中，LLM-Wiki、Dense RAG、LightRAG、HippoRAG 2 在三个 benchmark 上的延迟大致是多少？",
+      "metadata": {
+        "expected_evidence": [
+          {
+            "paper_id": "llm-wiki-2605.25480",
+            "page": 14,
+            "section": "效率分析",
+            "hint": "LLM-Wiki 14.9/27.1/15.9；Dense 16.3/26.9/15.6；LightRAG 41.4/51.3/39.7；HippoRAG 2 33.5/38.2/32.4"
+          }
+        ]
+      }
+    }
+  ],
+  "result_samples": {
+    "llm_only": [
+      {
+        "question_id": "paper-q01",
+        "question": "LLM-Wiki 论文的完整标题、arXiv 编号和 v2 日期是什么？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 2.101,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "paper-q02",
+        "question": "这篇论文的作者和单位是什么？为什么 Feifei Li 容易被模型混淆？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 2.176,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "paper-q03",
+        "question": "论文用 The Gamecock 和 Monster A Go-Go 的例子说明了什么检索问题？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 2.078,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "paper-q04",
+        "question": "Retrieval-as-Lookup 在论文中被指出有哪三个限制？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 2.003,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      },
+      {
+        "question_id": "paper-q05",
+        "question": "论文提出的 Q1、Q2、Q3 分别关注什么？",
+        "answerable": true,
+        "cited": false,
+        "refused": false,
+        "latency_ms": 2.009,
+        "retrieved_count": 0,
+        "citation_count": 0,
+        "label_distribution": {},
+        "answer_preview": "## 纯模型模拟回答\n\n该模式刻意不使用检索证据，因此无法核验课程 QA 参考证据。"
+      }
+    ],
+    "basic_rag": [
+      {
+        "question_id": "paper-q01",
+        "question": "LLM-Wiki 论文的完整标题、arXiv 编号和 v2 日期是什么？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.166,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.531：Wiki-Structured Knowledge\nLLM-Wiki 的 Wiki 包含 directory indices、structured Markdown pages 和 source archives。每个页面暴露 metadata、aliases、tags、facts、source references 和 bidirectional wikilinks。这样 agent 可以先看目录概览，再定位页"
+      },
+      {
+        "question_id": "paper-q02",
+        "question": "这篇论文的作者和单位是什么？为什么 Feifei Li 容易被模型混淆？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.281,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.597：摘要与元信息\n论文标题是 Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki。论文 arXiv 编号是 2605.25480，v2 日期是 2026-05-26，属于 2026-05-25 首次提交后的近一个月新论文。作者是 Haoliang Ming、Feifei Li、Xiaoqing Wu、Wenhui Que，"
+      },
+      {
+        "question_id": "paper-q03",
+        "question": "论文用 The Gamecock 和 Monster A Go-Go 的例子说明了什么检索问题？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.217,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.690：| Vanilla RAG (Dense) | 0.764 | 0.642 | 0.611 | 0.500 | 0.815 | 0.724 |\n- 排名 2，相关性 0.667：| HippoRAG 2 | 0.805 | 0.668 | 0.624 | 0.514 | 0.831 | 0.706 |\n- 排名 3，相关性 0.663：动机与例子\n论文用 2WikiMultiHopQA 的四跳问题说明传统 den"
+      },
+      {
+        "question_id": "paper-q04",
+        "question": "Retrieval-as-Lookup 在论文中被指出有哪三个限制？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.195,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.555：Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki\n- 排名 2，相关性 0.447：Table 3: 消融实验 F1 摘要。\n- 排名 3，相关性 0.437：AuthTrace Judge 与数据细节\nAuthTrace 包含 2099 个过滤后的 QA 实例，来自 5 位现代中文散文作家的 860 篇 publi"
+      },
+      {
+        "question_id": "paper-q05",
+        "question": "论文提出的 Q1、Q2、Q3 分别关注什么？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.127,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.655：| HippoRAG 2 | 78.3 | 59.6 | 46.5 | 68.3 |\n- 排名 2，相关性 0.507：Table 3: 消融实验 F1 摘要。\n- 排名 3，相关性 0.483：| Method | HotpotQA s/q | MuSiQue s/q | 2Wiki s/q |"
+      }
+    ],
+    "optimized_rag": [
+      {
+        "question_id": "paper-q01",
+        "question": "LLM-Wiki 论文的完整标题、arXiv 编号和 v2 日期是什么？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.381,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.531：Wiki-Structured Knowledge\nLLM-Wiki 的 Wiki 包含 directory indices、structured Markdown pages 和 source archives。每个页面暴露 metadata、aliases、tags、facts、source references 和 bidirectional wikilinks。这样 agent 可以先看目录概览，再定位页"
+      },
+      {
+        "question_id": "paper-q02",
+        "question": "这篇论文的作者和单位是什么？为什么 Feifei Li 容易被模型混淆？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.433,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.597：摘要与元信息\n论文标题是 Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki。论文 arXiv 编号是 2605.25480，v2 日期是 2026-05-26，属于 2026-05-25 首次提交后的近一个月新论文。作者是 Haoliang Ming、Feifei Li、Xiaoqing Wu、Wenhui Que，"
+      },
+      {
+        "question_id": "paper-q03",
+        "question": "论文用 The Gamecock 和 Monster A Go-Go 的例子说明了什么检索问题？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.331,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.690：| Vanilla RAG (Dense) | 0.764 | 0.642 | 0.611 | 0.500 | 0.815 | 0.724 |\n- 排名 2，相关性 0.667：| HippoRAG 2 | 0.805 | 0.668 | 0.624 | 0.514 | 0.831 | 0.706 |\n- 排名 3，相关性 0.663：动机与例子\n论文用 2WikiMultiHopQA 的四跳问题说明传统 den"
+      },
+      {
+        "question_id": "paper-q04",
+        "question": "Retrieval-as-Lookup 在论文中被指出有哪三个限制？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.324,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.555：Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki\n- 排名 2，相关性 0.447：Table 3: 消融实验 F1 摘要。\n- 排名 3，相关性 0.437：AuthTrace Judge 与数据细节\nAuthTrace 包含 2099 个过滤后的 QA 实例，来自 5 位现代中文散文作家的 860 篇 publi"
+      },
+      {
+        "question_id": "paper-q05",
+        "question": "论文提出的 Q1、Q2、Q3 分别关注什么？",
+        "answerable": true,
+        "cited": true,
+        "refused": false,
+        "latency_ms": 2.45,
+        "retrieved_count": 3,
+        "citation_count": 3,
+        "label_distribution": {},
+        "answer_preview": "## 有证据支撑的模拟回答\n\n- 排名 1，相关性 0.655：| HippoRAG 2 | 78.3 | 59.6 | 46.5 | 68.3 |\n- 排名 2，相关性 0.507：Table 3: 消融实验 F1 摘要。\n- 排名 3，相关性 0.483：| Method | HotpotQA s/q | MuSiQue s/q | 2Wiki s/q |"
+      }
+    ]
+  }
+}

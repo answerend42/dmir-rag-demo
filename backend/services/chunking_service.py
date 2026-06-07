@@ -20,13 +20,22 @@ class ChunkingService:
     - by_sentences: 按句子分块
     """
     
-    def chunk_text(self, text: str, method: str, metadata: dict, page_map: list = None, chunk_size: int = 1000) -> dict:
+    def chunk_text(
+        self,
+        text: str,
+        method: str,
+        metadata: dict,
+        page_map: list = None,
+        chunk_size: int = 1000,
+        chunk_overlap: int = 0,
+    ) -> dict:
         """! @brief 将文本按指定方法分块.
         @param text 原始文本内容；当 page_map 存在时主要保留兼容用途。
         @param method 分块方法，支持 by_pages、fixed_size、by_paragraphs、by_sentences。
         @param metadata 文档元数据。
         @param page_map 页面映射列表，每个元素包含页码和页面文本。
         @param chunk_size 固定大小分块时的块大小。
+        @param chunk_overlap 固定大小分块时相邻块保留的重叠字符数。
         @return 包含分块结果的标准化文档数据结构。
         @throws ValueError 当分块方法不支持或页面映射为空时抛出。
 
@@ -38,6 +47,7 @@ class ChunkingService:
             metadata: 文档元数据
             page_map: 页面映射列表，每个元素包含页码和页面文本
             chunk_size: 固定大小分块时的块大小
+            chunk_overlap: 固定大小分块时的重叠字符数
             
         返回:
             包含分块结果的文档数据结构
@@ -47,7 +57,13 @@ class ChunkingService:
         """
         try:
             if not page_map:
-                raise ValueError("Page map is required for chunking.")
+                raise ValueError("分块需要 page_map。")
+            if chunk_size <= 0:
+                raise ValueError("chunk_size 必须为正整数。")
+            if chunk_overlap < 0:
+                raise ValueError("chunk_overlap 不能为负数。")
+            if chunk_overlap >= chunk_size:
+                raise ValueError("chunk_overlap 必须小于 chunk_size。")
             
             chunks = []
             total_pages = len(page_map)
@@ -69,13 +85,14 @@ class ChunkingService:
             elif method == "fixed_size":
                 # 对每页内容进行固定大小分块
                 for page_data in page_map:
-                    page_chunks = self._fixed_size_chunks(page_data['text'], chunk_size)
+                    page_chunks = self._fixed_size_chunks(page_data['text'], chunk_size, chunk_overlap)
                     for idx, chunk in enumerate(page_chunks, 1):
                         chunk_metadata = {
                             "chunk_id": len(chunks) + 1,
                             "page_number": page_data['page'],
                             "page_range": str(page_data['page']),
-                            "word_count": len(chunk["text"].split())
+                            "word_count": len(chunk["text"].split()),
+                            "chunk_overlap": chunk_overlap,
                         }
                         chunks.append({
                             "content": chunk["text"],
@@ -108,6 +125,8 @@ class ChunkingService:
                 "total_pages": total_pages,
                 "loading_method": metadata.get("loading_method", ""),
                 "chunking_method": method,
+                "chunk_size": chunk_size if method == "fixed_size" else None,
+                "chunk_overlap": chunk_overlap if method == "fixed_size" else 0,
                 "timestamp": datetime.now().isoformat(),
                 "chunks": chunks
             }
@@ -118,16 +137,12 @@ class ChunkingService:
             logger.error(f"Error in chunk_text: {str(e)}")
             raise
 
-    def _fixed_size_chunks(self, text: str, chunk_size: int) -> list[dict]:
-        """
-        将文本按固定大小分块
-        
-        参数:
-            text: 要分块的文本
-            chunk_size: 每块的最大字符数
-            
-        返回:
-            分块后的文本列表
+    def _fixed_size_chunks(self, text: str, chunk_size: int, chunk_overlap: int = 0) -> list[dict]:
+        """! @brief 将文本按固定大小分块，并可保留相邻块重叠文本。
+        @param text 要分块的文本。
+        @param chunk_size 每块的最大字符数。
+        @param chunk_overlap 相邻块重叠字符数。
+        @return 分块后的文本列表。
         """
         chunks = []
         words = text.split()
@@ -138,15 +153,30 @@ class ChunkingService:
             word_length = len(word) + (1 if current_length > 0 else 0)
             if current_length + word_length > chunk_size and current_chunk:
                 chunks.append({"text": " ".join(current_chunk)})
-                current_chunk = []
-                current_length = 0
+                current_chunk = self._overlap_tail_words(current_chunk, chunk_overlap)
+                while current_chunk and len(" ".join([*current_chunk, word])) > chunk_size:
+                    current_chunk.pop(0)
+                current_length = len(" ".join(current_chunk))
             current_chunk.append(word)
-            current_length += word_length
+            current_length = len(" ".join(current_chunk))
             
         if current_chunk:
             chunks.append({"text": " ".join(current_chunk)})
             
         return chunks
+
+    @staticmethod
+    def _overlap_tail_words(words: list[str], chunk_overlap: int) -> list[str]:
+        """! @brief 从已完成块尾部取不超过指定字符数的词，作为下一块前缀。"""
+        if chunk_overlap <= 0:
+            return []
+        tail = []
+        for word in reversed(words):
+            candidate = [word, *tail]
+            if len(" ".join(candidate)) > chunk_overlap:
+                break
+            tail = candidate
+        return tail
 
     def _paragraph_chunks(self, text: str) -> list[dict]:
         """

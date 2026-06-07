@@ -74,7 +74,7 @@ const PipelineConfigPanel = ({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <div>
             <label htmlFor={CONTROL_IDS.provider} className="block text-sm font-medium text-gray-700">Provider</label>
             <input

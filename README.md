@@ -13,17 +13,22 @@
 
 - P0 已完成：`backend/rag_core/contracts/`、fake pipeline、contract tests 和 smoke pipeline 已进入 CI。
 - #8 阶段 A 已固定最小 `/rag/answer` integration spine：先用课程 QA public 数据和 fake/mock pipeline 返回 `RagAnswer`。
+- #5 已有离线论文 Markdown/PDF parser skeleton 与 `ResearchPaperChunker`，并可解析 LLM-Wiki 论文 digest 的 page/section/table/caption metadata。
+- #7 已有 `scripts/run_eval.py`，可输出课程 QA 与 LLM-Wiki 论文的 JSON/CSV/Markdown 三模式评测摘要。
+- 前端评测 dashboard 可通过后端只读端点读取 `course_qa_eval.json` 和 `paper_eval.json` 两类自动评测结果；文件缺失时仍保留 fallback。
 - 第一阶段默认输入是课程 QA 数据：`sample_data/course_qa_public.json`。
 - 课程 QA 的 0-9 档质量标签只保存在 `eval/labels/course_qa_quality_labels.json`，禁止进入 RAG 索引、prompt、trace 或前端展示。
-- 新论文任务没有取消，已经并入 #5、#7、#8 和各模块的阶段 B；只是排在课程 QA 默认链路跑通之后。
+- 新论文任务已经并入 #5、#7、#8 的阶段 B，并已锁定默认目标论文 `Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki`。仓库内提供中文结构化 digest、4 篇干扰/背景论文 metadata、26 个论文 QA/evidence 和三模式离线评测结果。
 
 ## 快速验证
 
 ```shell
 python -m compileall backend/rag_core scripts/run_smoke_pipeline.py
-pytest tests/contract
+pytest tests/contract tests/unit eval/tests -m "not integration and not benchmark"
 python scripts/run_smoke_pipeline.py --mode fake --pretty
 python scripts/run_rag_answer_smoke.py --pretty
+python scripts/run_eval.py --dataset-type course_qa --modes all --limit 5 --pretty
+python scripts/run_eval.py --dataset-type paper --modes all --limit 26 --pretty
 ```
 
 `run_smoke_pipeline.py` 默认读取 `sample_data/course_qa_public.json`，输出 `RagAnswer`，包含：
@@ -40,7 +45,10 @@ python scripts/run_rag_answer_smoke.py --pretty
 | --- | --- | --- |
 | `sample_data/course_qa_public.json` | 课程 QA 默认测试输入，只含主题、问题、候选答案、`answer_id` | 是 |
 | `eval/labels/course_qa_quality_labels.json` | 课程 QA 质量档次标签，只供评测脚本生成报告 | 否 |
-| 论文 PDF / Markdown corpus | 第二阶段新论文 RAG 任务使用，由现有 Issue 接入 | 后续接入 |
+| `sample_data/papers/llm_wiki_retrieval_as_reasoning.md` | LLM-Wiki 论文中文结构化 digest，保留页码、章节和表格数字 | 是 |
+| `sample_data/papers/paper_eval_fixture.json` | LLM-Wiki 论文 metadata、干扰论文和 26 个 QA/evidence | 是 |
+| `sample_data/papers/demo_research_paper.md` | parser/chunker 最小 contract test fixture，不作为默认评测目标 | 是 |
+| `eval/results/*.json|csv|md` | `run_eval.py` 生成的离线评测摘要，前端只读 JSON | 否，属于生成后报告 |
 
 质量档次隔离规则：
 
@@ -56,6 +64,9 @@ backend/
   services/                       # 旧服务层，保留已有前后端流程
   rag_core/
     contracts/                    # Pydantic contracts 与 Protocol
+    parsers/                      # 论文 Markdown/PDF parser skeleton
+    chunkers/                     # 论文结构化 chunker
+    embeddings/                   # Qwen API/local 与 mock embedding adapter
     testing/                      # fake adapters 与课程 QA loader
     pipeline/                     # fake RAG pipeline
 
@@ -64,13 +75,17 @@ frontend/
 
 sample_data/
   course_qa_public.json           # 第一阶段 RAG 默认输入
+  papers/                         # LLM-Wiki 论文 digest、metadata、QA/evidence
 
 eval/
   labels/course_qa_quality_labels.json
+  results/                        # run_eval.py 输出的前端可读摘要
+  tests/                          # eval 脚本测试
 
 scripts/
   run_smoke_pipeline.py           # P0 冒烟流水线
   run_rag_answer_smoke.py         # /rag/answer 接口冒烟脚本
+  run_eval.py                     # 三模式离线评测脚本
 
 tests/
   contract/                       # contract tests
@@ -104,8 +119,9 @@ docs/
 - #6：Frontend trace/config/eval dashboard
 - #7：Course QA and paper evaluation report
 - #8：Integration and demo lock
+- #17：修复 #16 合并后的 embedding 规范问题
 
-注意：论文任务不是新增一轮分工，而是现有 Issue 的阶段 B。第一阶段所有人先围绕 `course_qa_public.json` 建立可运行、可评测的默认链路；课程 QA 跑通后，#7 负责目标论文、干扰论文、论文 QA/evidence 与评测报告，#5 负责论文解析与分块，#8 负责最终整合，#2/#3/#4/#6 复用自己的模块支持论文 corpus。
+注意：论文任务不是新增一轮分工，而是现有 Issue 的阶段 B。当前收口 PR 由 `answerend42` 统一处理未完成项；课程 QA 默认链路和 LLM-Wiki 论文离线评测共用同一套 parser、chunker、eval 和前端展示约定。
 
 ## 后端环境
 
@@ -136,9 +152,11 @@ cd backend
 ```shell
 export OPENAI_API_KEY="..."
 export DEEPSEEK_API_KEY="..."
+export DASHSCOPE_API_KEY="..."
+export DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 ```
 
-不得把 API key 写入源码、测试 fixture、日志或评测结果。
+本地也可以把上述变量写入已被 `.gitignore` 忽略的 `.env`。不得把 API key 写入源码、测试 fixture、日志或评测结果。
 
 ## 前端环境
 
@@ -161,6 +179,7 @@ GitHub Actions 当前会运行：
 - P0：`pytest tests/contract`
 - P0：`python scripts/run_smoke_pipeline.py --mode fake`
 - #8 阶段 A：`python scripts/run_rag_answer_smoke.py`
+- #7：`python scripts/run_eval.py --dataset-type course_qa --modes all --limit 5`
 
 普通 PR 不应依赖真实网络、真实 API、真实模型下载或大型 benchmark。
 
@@ -174,7 +193,7 @@ GitHub Actions 当前会运行：
 
 第二阶段，已并入现有 Issue：
 
-- #7 找到老师要求的新论文，准备目标论文、相关干扰论文、论文 QA、evidence 标注和评测报告。
-- #5 增加 PDF/Markdown/OCR 解析与论文分块。
+- #7 已锁定 LLM-Wiki 作为老师要求的新论文输入，并准备目标论文、相关干扰论文、26 个论文 QA、evidence 标注和评测报告。
+- #5 已支持 Markdown/PDF 论文解析入口与论文分块；复杂 OCR/Docling 仍作为可选增强。
 - #2/#3/#4/#6 复用索引、embedding、生成和前端能力支持论文 corpus。
 - #8 做 LLM-only / Basic RAG / Optimized RAG 三模式最终对比与 demo lock。

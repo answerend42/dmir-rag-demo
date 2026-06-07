@@ -73,7 +73,7 @@ v1.1 | 2026-06-03
 
 ### 5. Research paper parser and chunker
 
-- Owner: `Magicpjl`
+- Owner: 当前集中收口 `answerend42`；原模块负责人 `Magicpjl`
 - ALLOWED_PATHS: `backend/rag_core/parsers/`, `backend/rag_core/chunkers/`, `tests/contract/`, `tests/unit/`, `sample_data/`
 - 工作内容：Parser 输出 `ParsedDocument`；新增 PDF->Markdown 路线、`research_paper_chunker`。
 - Definition of Done：样例 PDF 能输出 markdown、blocks、chunks；chunk 保留 page/section/block_type。
@@ -89,7 +89,7 @@ v1.1 | 2026-06-03
 
 ### 7. Course QA and paper evaluation report
 
-- Owner: `Ryan-137`
+- Owner: 当前集中收口 `answerend42`；原模块负责人 `Ryan-137`
 - ALLOWED_PATHS: `eval/`, `scripts/run_eval.py`, `sample_data/`, `docs/`
 - 工作内容：阶段 A 基于 `sample_data/course_qa_public.json` 和 `eval/labels/course_qa_quality_labels.json` 实现课程 QA 评测报告；阶段 B 确定目标新论文、相关干扰论文、论文 QA、evidence 标注和三模式评测报告。
 - Definition of Done：`run_eval.py` 输出 JSON/CSV/Markdown；至少 5 个课程 QA 现场展示问题稳定；论文阶段有目标论文 metadata、干扰论文清单、20-30 个论文问题与 evidence 标注方案。
@@ -97,7 +97,7 @@ v1.1 | 2026-06-03
 
 ### 8. Integration and demo lock
 
-- Owner: `answerend42` + 全员
+- Owner: `answerend42`
 - ALLOWED_PATHS: `backend/`, `frontend/`, `scripts/`, `eval/`, `docs/`
 - 工作内容：统一 `/rag/answer`；固定模型、数据、索引、问题；生成最终报告。
 - Definition of Done：展示前 24 小时只修 bug；准备录屏、截图、离线结果 fallback。
@@ -105,7 +105,7 @@ v1.1 | 2026-06-03
 
 ## 固定演示问题建议
 
-第一阶段演示问题先从课程 QA 数据中选；最终论文演示问题由 #7 在同一个 Issue 的阶段 B 补齐，不再新开一轮 Issue。
+第一阶段演示问题先从课程 QA 数据中选；论文阶段已经固定为 LLM-Wiki 论文，完整 26 个问题见 `sample_data/papers/paper_eval_fixture.json` 和 `eval/results/paper_eval.md`。
 
 | 问题类型 | 示例问题 | 期望现象 |
 | --- | --- | --- |
@@ -114,3 +114,13 @@ v1.1 | 2026-06-03
 | 模型机制 | 激活函数为什么对神经网络重要？ | RAG 应检索神经网络核心问答 |
 | 数据结构 | 哈希表解决冲突的常用方法有哪些？ | RAG 应检索数据结构课程问答 |
 | 程序设计 | C++ 中虚函数有什么作用？ | RAG 应检索 C++ 高级程序设计问答 |
+
+## 固定论文演示问题
+
+| 问题类型 | 示例问题 | 期望现象 |
+| --- | --- | --- |
+| 元信息易混 | 这篇论文的作者和单位是什么？为什么 Feifei Li 容易被模型混淆？ | LLM-only 容易编作者或混淆同名作者；RAG 应命中 WeChat, Tencent Inc., Beijing, China |
+| 工具接口 | wiki_search(query) 和 wiki_read(paths) 分别返回什么、用于什么？ | RAG 应命中工具接口章节 |
+| Error Book | Error Book 的五阶段生命周期按顺序是什么？ | RAG 应给出 Discover、Attribute、Constrain、Inject、Verify & Close |
+| 反例纠偏 | AuthTrace 上 LLM-Wiki 是否四列都超过 HippoRAG 2？ | RAG 应指出 Single-doc 上 HippoRAG 2 更高，其余多文档/总体 LLM-Wiki 更高 |
+| 消融结论 | 消融实验里去掉哪个组件影响最大？为什么？ | RAG 应指出 w/o Progressive Traversal 降幅最大 |

@@ -7,21 +7,12 @@
 import os
 import json
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from services.loading_service import LoadingService
-from services.chunking_service import ChunkingService
-from services.embedding_service import EmbeddingService, EmbeddingConfig
-from services.vector_store_service import VectorStoreService, VectorDBConfig
-from services.search_service import SearchService
-from services.parsing_service import ParsingService
 import logging
 from enum import Enum
-from utils.config import VectorDBProvider
-import pandas as pd
 from pathlib import Path
-from services.generation_service import GenerationService
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from rag_core.contracts.errors import ContractViolation, EmptyCorpus, ProviderUnavailable, RagCoreError
 from rag_core.contracts.models import RagRequest
 from rag_core.pipeline import CourseQaRagSpine
@@ -48,11 +39,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-## @brief 供生成端点复用的共享生成服务实例。
-generation_service = GenerationService()
-
 ## @brief #8 阶段 A 的课程 QA 集成主链路。
 course_qa_rag_spine = CourseQaRagSpine()
+
+## @brief 前端评测 dashboard 读取的离线结果目录。
+eval_results_dir = Path(__file__).resolve().parents[1] / "eval" / "results"
+
+
+def _strip_answer_quality(value: Any) -> Any:
+    """! @brief 递归移除只允许评测脚本读取的 answer_quality 字段。
+    @param value 任意 JSON 可序列化数据。
+    @return 不含隐藏质量档次字段的数据。
+    """
+    if isinstance(value, dict):
+        return {
+            key: _strip_answer_quality(item)
+            for key, item in value.items()
+            if key != "answer_quality"
+        }
+    if isinstance(value, list):
+        return [_strip_answer_quality(item) for item in value]
+    return value
 
 
 @app.post("/rag/answer")
@@ -73,18 +80,49 @@ async def rag_answer(request: RagRequest):
     except RagCoreError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+
+@app.get("/eval/results/{filename}")
+async def get_eval_result(filename: str):
+    """! @brief 读取 scripts/run_eval.py 生成的离线评测结果。
+    @param filename 结果文件名, 仅允许 json/csv/md。
+    @return JSON 结果或文本结果。
+    @throws HTTPException 文件名非法或结果不存在时抛出。
+    """
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".json", ".csv", ".md"}:
+        raise HTTPException(status_code=400, detail="仅支持读取 json/csv/md 评测结果")
+
+    eval_dir = eval_results_dir.resolve()
+    path = (eval_dir / filename).resolve()
+    try:
+        path.relative_to(eval_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="非法评测结果文件名") from exc
+    if path.name.startswith("."):
+        raise HTTPException(status_code=400, detail="非法评测结果文件名")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"评测结果不存在: {filename}")
+
+    if suffix == ".json":
+        with path.open("r", encoding="utf-8") as handle:
+            return _strip_answer_quality(json.load(handle))
+    media_type = "text/csv; charset=utf-8" if suffix == ".csv" else "text/markdown; charset=utf-8"
+    return Response(content=path.read_text(encoding="utf-8"), media_type=media_type)
+
 @app.post("/process")
 async def process_file(
     file: UploadFile = File(...),
     loading_method: str = Form(...),
     chunking_option: str = Form(...),
-    chunk_size: int = Form(1000)
+    chunk_size: int = Form(1000),
+    chunk_overlap: int = Form(0),
 ):
     """! @brief 在一次请求中读入并分块上传的 PDF。
     @param file 上传的 PDF 文件。
     @param loading_method 读入后端，例如 pymupdf、pypdf 或 unstructured。
     @param chunking_option 分块策略名称。
     @param chunk_size 固定大小分块的最大块长度。
+    @param chunk_overlap 固定大小分块时相邻块重叠字符数。
     @return 包含分块文档数据的 JSON 对象。
     """
     try:
@@ -103,6 +141,9 @@ async def process_file(
             "chunking_method": chunking_option,
         }
         
+        from services.loading_service import LoadingService
+        from services.chunking_service import ChunkingService
+
         loading_service = LoadingService()
         raw_text = loading_service.load_pdf(temp_path, loading_method)
         metadata["total_pages"] = loading_service.get_total_pages()
@@ -115,13 +156,17 @@ async def process_file(
             chunking_option, 
             metadata,
             page_map=page_map,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
         
         # 清理临时文件
         os.remove(temp_path)
         
         return {"chunks": chunks}
+    except ValueError as e:
+        logger.warning(f"分块参数非法: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
         raise
@@ -218,6 +263,8 @@ async def embed_document(data: dict = Body(...)):
         with open(doc_path, 'r', encoding='utf-8') as f:
             doc_data = json.load(f)
         
+        from services.embedding_service import EmbeddingService, EmbeddingConfig
+
         # 创建 EmbeddingConfig 和 EmbeddingService
         config = EmbeddingConfig(provider=provider, model_name=model)
         embedding_service = EmbeddingService()
@@ -312,6 +359,8 @@ async def index_embeddings(data: dict):
         if not os.path.exists(embedding_file):
             raise FileNotFoundError(f"Embedding file not found: {file_id}")
             
+        from services.vector_store_service import VectorStoreService, VectorDBConfig
+
         config = VectorDBConfig(provider=vector_db, index_mode=index_mode)
         vector_store_service = VectorStoreService()
         result = vector_store_service.index_embeddings(embedding_file, config)
@@ -328,6 +377,8 @@ async def index_embeddings(data: dict):
 async def get_providers():
     """! @brief 获取支持的向量数据库列表."""
     try:
+        from services.search_service import SearchService
+
         search_service = SearchService()
         providers = search_service.get_providers()
         return {"providers": providers}
@@ -340,13 +391,14 @@ async def get_providers():
 
 @app.get("/collections")
 async def get_collections(
-   # provider: VectorDBProvider = Query(default=VectorDBProvider.MILVUS)
-    provider: VectorDBProvider = Query(default=VectorDBProvider.CHROMA)
+    provider: str = Query(default="chroma")
 ):
     """! @brief 获取指定向量数据库中的集合."""
     try:
+        from services.search_service import SearchService
+
         search_service = SearchService()
-        collections = search_service.list_collections(provider.value)
+        collections = search_service.list_collections(provider)
         return {"collections": collections}
     except Exception as e:
         logger.error(f"Error getting collections: {str(e)}")
@@ -360,16 +412,25 @@ async def search(
     query: str = Body(...),
     collection_id: str = Body(...),
     top_k: int = Body(3),
-    threshold: float = Body(0.7),
-    word_count_threshold: int = Body(100)
+    threshold: float = Body(0.3),
+    word_count_threshold: int = Body(0),
+    save_results: bool = Body(False),
 ):
     """! @brief 执行向量搜索.
+    @param query 用户查询文本。
+    @param collection_id 要检索的向量集合。
+    @param top_k 返回的最大命中数量。
+    @param threshold 最低相似度分数。
+    @param word_count_threshold 最小词数过滤阈值。
+    @param save_results 是否保存检索结果。
     @return 包装在 results 对象中的搜索结果。
     """
     try:
         # 记录传入的搜索请求详情
         logger.info(f"Search request - Query: {query}, Collection: {collection_id}, Top K: {top_k}, Threshold: {threshold}, Word Count Threshold: {word_count_threshold}")
         
+        from services.search_service import SearchService
+
         search_service = SearchService()
         
         # 调用搜索函数前记录日志
@@ -380,7 +441,8 @@ async def search(
             collection_id=collection_id,
             top_k=top_k,
             threshold=threshold,
-            word_count_threshold=word_count_threshold
+            word_count_threshold=word_count_threshold,
+            save_results=save_results,
         )
         
         # 记录搜索结果
@@ -398,6 +460,8 @@ async def search(
 async def get_provider_collections(provider: str):
     """! @brief 获取指定向量数据库提供方的集合列表。"""
     try:
+        from services.vector_store_service import VectorStoreService
+
         vector_store_service = VectorStoreService()
         collections = vector_store_service.list_collections(provider)
         return {"collections": collections}
@@ -412,6 +476,8 @@ async def get_provider_collections(provider: str):
 async def get_collection_info(provider: str, collection_name: str):
     """! @brief 获取指定集合的详细信息。"""
     try:
+        from services.vector_store_service import VectorStoreService
+
         vector_store_service = VectorStoreService()
         info = vector_store_service.get_collection_info(provider, collection_name)
         return info
@@ -426,6 +492,8 @@ async def get_collection_info(provider: str, collection_name: str):
 async def delete_collection(provider: str, collection_name: str):
     """! @brief 删除指定集合。"""
     try:
+        from services.vector_store_service import VectorStoreService
+
         vector_store_service = VectorStoreService()
         success = vector_store_service.delete_collection(provider, collection_name)
         if success:
@@ -650,6 +718,9 @@ async def parse_file(
             "parsing_method": parsing_option,
         }
         
+        from services.loading_service import LoadingService
+        from services.parsing_service import ParsingService
+
         loading_service = LoadingService()
         raw_text = loading_service.load_pdf(temp_path, loading_method)
         metadata["total_pages"] = loading_service.get_total_pages()
@@ -711,6 +782,8 @@ async def load_file(
         if chunking_options:
             chunking_options_dict = json.loads(chunking_options)
         
+        from services.loading_service import LoadingService
+
         # 使用 LoadingService 加载文档
         loading_service = LoadingService()
         raw_text = loading_service.load_pdf(
@@ -767,13 +840,14 @@ async def load_file(
 @app.post("/chunk")
 async def chunk_document(data: dict = Body(...)):
     """! @brief 对已读入文档重新分块。
-    @param data 请求体，包含 doc_id、chunking_option 和可选 chunk_size。
+    @param data 请求体，包含 doc_id、chunking_option 和可选 chunk_size/chunk_overlap。
     @return 分块后的文档数据。
     """
     try:
         doc_id = data.get("doc_id")
         chunking_option = data.get("chunking_option")
         chunk_size = data.get("chunk_size", 1000)
+        chunk_overlap = data.get("chunk_overlap", 0)
         
         if not doc_id or not chunking_option:
             raise HTTPException(
@@ -805,13 +879,16 @@ async def chunk_document(data: dict = Body(...)):
             "total_pages": doc_data['total_pages']
         }
             
+        from services.chunking_service import ChunkingService
+
         chunking_service = ChunkingService()
         result = chunking_service.chunk_text(
             text="",  # 不需要传递文本，因为我们使用 page_map
             method=chunking_option,
             metadata=metadata,
             page_map=page_map,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
         
         # 生成输出文件名
@@ -827,6 +904,11 @@ async def chunk_document(data: dict = Body(...)):
         
         return result
         
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"分块参数非法: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error chunking document: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -846,6 +928,9 @@ async def evaluate_search(
     @return 单条查询得分和聚合平均值。
     """
     try:
+        import pandas as pd
+        from services.search_service import SearchService
+
         # 读取CSV文件
         df = pd.read_csv(file.file)
         
@@ -881,15 +966,25 @@ async def evaluate_search(
                     continue
                 
                 # 执行搜索
-                search_results = await search_service.search(
+                search_payload = await search_service.search(
                     query=row['combined_text'],
                     collection_id=collection_id,
                     top_k=top_k,
                     threshold=threshold
                 )
+                search_results = (
+                    search_payload.get("results", []) or []
+                    if isinstance(search_payload, dict)
+                    else search_payload
+                )
                 
                 # 提取找到的页码
-                found_pages = [int(result['metadata']['page']) for result in search_results]
+                found_pages = []
+                for result in search_results:
+                    metadata = result.get('metadata', {})
+                    page = metadata.get('page', metadata.get('page_number'))
+                    if page is not None:
+                        found_pages.append(int(page))
                 
                 # 计算分数
                 hits = sum(1 for page in found_pages if page in expected_pages)
@@ -907,9 +1002,10 @@ async def evaluate_search(
                 
                 # 添加每个top_k结果的文本作为单独的字段
                 for i, result in enumerate(search_results, 1):
-                    result_entry[f"text_{i}"] = result['text']
-                    result_entry[f"page_{i}"] = result['metadata']['page']
-                    result_entry[f"score_{i}"] = result['score']
+                    metadata = result.get('metadata', {})
+                    result_entry[f"text_{i}"] = result.get('text', '')
+                    result_entry[f"page_{i}"] = metadata.get('page', metadata.get('page_number'))
+                    result_entry[f"score_{i}"] = result.get('score', 0)
                 
                 results.append(result_entry)
                 
@@ -922,7 +1018,7 @@ async def evaluate_search(
                 continue
         
         if valid_queries == 0:
-            raise ValueError("No valid queries found in the CSV file")
+            raise ValueError("CSV 中没有可评估的有效查询")
         
         # 计算平均分数
         average_scores = {
@@ -988,6 +1084,8 @@ async def save_search_results(request: Request):
         if not all([query, collection_id, results]):
             raise HTTPException(status_code=400, detail="Missing required parameters")
         
+        from services.search_service import SearchService
+
         # 直接创建 SearchService 实例
         search_service = SearchService()
         filepath = search_service.save_search_results(query, collection_id, results)
@@ -1001,6 +1099,8 @@ async def save_search_results(request: Request):
 async def get_generation_models():
     """! @brief 获取可用的生成模型列表."""
     try:
+        from services.generation_service import GenerationService
+
         generation_service = GenerationService()
         models = generation_service.get_available_models()
         return {"models": models}
@@ -1021,6 +1121,9 @@ async def generate_response(
     @return 生成回答和持久化结果路径。
     """
     try:
+        from services.generation_service import GenerationService
+
+        generation_service = GenerationService()
         result = generation_service.generate(
             provider=provider,
             model_name=model_name,
