@@ -102,13 +102,15 @@ class FakeLoadingService:
 
 
 class FakeChunkingService:
-    def chunk_text(self, text, method, metadata, page_map=None, chunk_size=1000):
+    def chunk_text(self, text, method, metadata, page_map=None, chunk_size=1000, chunk_overlap=0):
         return {
             "filename": metadata.get("filename", "doc.pdf"),
             "total_chunks": len(page_map or [1]),
             "total_pages": len(page_map or [1]),
             "loading_method": metadata.get("loading_method", "pymupdf"),
             "chunking_method": method,
+            "chunk_size": chunk_size if method == "fixed_size" else None,
+            "chunk_overlap": chunk_overlap if method == "fixed_size" else 0,
             "timestamp": "2026-01-01T00:00:00",
             "chunks": [
                 {
@@ -153,6 +155,8 @@ class FakeEmbeddingService:
 
 
 class FakeSearchService:
+    last_search_kwargs = {}
+
     def get_providers(self):
         return [{"id": "chroma", "name": "chroma"}]
 
@@ -160,6 +164,7 @@ class FakeSearchService:
         return [{"id": "collection", "name": "collection", "count": 1}]
 
     async def search(self, **kwargs):
+        FakeSearchService.last_search_kwargs = kwargs
         if "word_count_threshold" not in kwargs:
             return [
                 {
@@ -205,14 +210,19 @@ class FakeVectorStoreService:
 
 
 def test_process_parse_load_save_and_list_routes(client, main_module, monkeypatch):
-    monkeypatch.setattr(main_module, "LoadingService", FakeLoadingService)
-    monkeypatch.setattr(main_module, "ChunkingService", FakeChunkingService)
-    monkeypatch.setattr(main_module, "ParsingService", FakeParsingService)
+    import services.chunking_service as chunking_module
+    import services.loading_service as loading_module
+    import services.parsing_service as parsing_module
+
+    monkeypatch.setattr(loading_module, "LoadingService", FakeLoadingService)
+    monkeypatch.setattr(chunking_module, "ChunkingService", FakeChunkingService)
+    monkeypatch.setattr(parsing_module, "ParsingService", FakeParsingService)
 
     upload = {"file": ("doc.pdf", b"%PDF fake", "application/pdf")}
-    response = client.post("/process", files=upload, data={"loading_method": "pymupdf", "chunking_option": "by_pages", "chunk_size": "100"})
+    response = client.post("/process", files=upload, data={"loading_method": "pymupdf", "chunking_option": "fixed_size", "chunk_size": "100", "chunk_overlap": "20"})
     assert response.status_code == 200
-    assert response.json()["chunks"]["chunking_method"] == "by_pages"
+    assert response.json()["chunks"]["chunking_method"] == "fixed_size"
+    assert response.json()["chunks"]["chunk_overlap"] == 20
 
     response = client.post("/parse", files=upload, data={"loading_method": "pymupdf", "parsing_option": "all_text"})
     assert response.status_code == 200
@@ -243,8 +253,13 @@ def test_empty_directory_routes(client):
 
 
 def test_document_chunk_embedding_and_index_routes(client, main_module, monkeypatch):
-    monkeypatch.setattr(main_module, "EmbeddingService", FakeEmbeddingService)
-    monkeypatch.setattr(main_module, "VectorStoreService", FakeVectorStoreService)
+    import services.chunking_service as chunking_module
+    import services.embedding_service as embedding_module
+    import services.vector_store_service as vector_module
+
+    monkeypatch.setattr(chunking_module, "ChunkingService", FakeChunkingService)
+    monkeypatch.setattr(embedding_module, "EmbeddingService", FakeEmbeddingService)
+    monkeypatch.setattr(vector_module, "VectorStoreService", FakeVectorStoreService)
 
     write_json(Path("01-loaded-docs/loaded.json"), loaded_doc())
     write_json(Path("01-chunked-docs/chunked.json"), chunked_doc())
@@ -256,9 +271,10 @@ def test_document_chunk_embedding_and_index_routes(client, main_module, monkeypa
     assert client.get("/documents/loaded.json?type=loaded").json()["filename"] == "doc.pdf"
     assert client.get("/documents/missing.json?type=loaded").status_code == 404
 
-    chunk_response = client.post("/chunk", json={"doc_id": "loaded.json", "chunking_option": "by_pages", "chunk_size": 1000})
+    chunk_response = client.post("/chunk", json={"doc_id": "loaded.json", "chunking_option": "fixed_size", "chunk_size": 1000, "chunk_overlap": 100})
     assert chunk_response.status_code == 200
-    assert chunk_response.json()["chunking_method"] == "by_pages"
+    assert chunk_response.json()["chunking_method"] == "fixed_size"
+    assert chunk_response.json()["chunk_overlap"] == 100
     assert client.post("/chunk", json={}).status_code == 500
 
     embed_response = client.post("/embed", json={"documentId": "chunked.json", "provider": "huggingface", "model": "fake"})
@@ -287,9 +303,20 @@ def test_document_chunk_embedding_and_index_routes(client, main_module, monkeypa
 
 
 def test_search_collection_evaluation_generation_and_result_routes(client, main_module, monkeypatch):
-    monkeypatch.setattr(main_module, "SearchService", FakeSearchService)
-    monkeypatch.setattr(main_module, "VectorStoreService", FakeVectorStoreService)
-    main_module.generation_service = SimpleNamespace(generate=lambda **kwargs: {"response": "answer", "saved_filepath": "05-generation-results/out.json"})
+    import services.generation_service as generation_module
+    import services.search_service as search_module
+    import services.vector_store_service as vector_module
+
+    class FakeGenerationService:
+        def get_available_models(self):
+            return {"deepseek": {"deepseek-v3": "deepseek-v3"}}
+
+        def generate(self, **kwargs):
+            return {"response": "answer", "saved_filepath": "05-generation-results/out.json"}
+
+    monkeypatch.setattr(search_module, "SearchService", FakeSearchService)
+    monkeypatch.setattr(vector_module, "VectorStoreService", FakeVectorStoreService)
+    monkeypatch.setattr(generation_module, "GenerationService", FakeGenerationService)
 
     assert client.get("/providers").json()["providers"][0]["id"] == "chroma"
     assert client.get("/collections?provider=chroma").json()["collections"][0]["id"] == "collection"
@@ -298,9 +325,10 @@ def test_search_collection_evaluation_generation_and_result_routes(client, main_
     assert client.delete("/collections/chroma/collection").status_code == 200
     assert client.delete("/collections/chroma/fail").status_code == 500
 
-    search = client.post("/search", json={"query": "q", "collection_id": "collection", "top_k": 1, "threshold": 0.1, "word_count_threshold": 0})
+    search = client.post("/search", json={"query": "q", "collection_id": "collection", "top_k": 1, "threshold": 0.1, "word_count_threshold": 0, "save_results": True})
     assert search.status_code == 200
     assert search.json()["results"]["results"][0]["text"] == "hit text"
+    assert FakeSearchService.last_search_kwargs["save_results"] is True
 
     saved = client.post("/save-search", json={"query": "q", "collection_id": "collection", "results": [{"text": "hit"}]})
     assert saved.status_code == 200

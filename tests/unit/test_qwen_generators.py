@@ -107,8 +107,10 @@ def test_qwen_local_generator_uses_injected_generate_text():
     assert answer.metadata["generator"] == "qwen-local-generator"
 
 
-def test_build_qwen_api_complete_fn_requires_api_key_without_client():
+def test_build_qwen_api_complete_fn_requires_api_key_without_client(monkeypatch):
     """! @brief 未注入 client 且缺少 API Key 时应抛出 ProviderUnavailable。"""
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
     with pytest.raises(ProviderUnavailable):
         build_qwen_api_complete_fn(api_key=None, client=None)
 

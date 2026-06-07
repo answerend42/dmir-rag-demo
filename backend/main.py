@@ -98,13 +98,15 @@ async def process_file(
     file: UploadFile = File(...),
     loading_method: str = Form(...),
     chunking_option: str = Form(...),
-    chunk_size: int = Form(1000)
+    chunk_size: int = Form(1000),
+    chunk_overlap: int = Form(0),
 ):
     """! @brief 在一次请求中读入并分块上传的 PDF。
     @param file 上传的 PDF 文件。
     @param loading_method 读入后端，例如 pymupdf、pypdf 或 unstructured。
     @param chunking_option 分块策略名称。
     @param chunk_size 固定大小分块的最大块长度。
+    @param chunk_overlap 固定大小分块时相邻块重叠字符数。
     @return 包含分块文档数据的 JSON 对象。
     """
     try:
@@ -138,7 +140,8 @@ async def process_file(
             chunking_option, 
             metadata,
             page_map=page_map,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
         
         # 清理临时文件
@@ -390,10 +393,17 @@ async def search(
     query: str = Body(...),
     collection_id: str = Body(...),
     top_k: int = Body(3),
-    threshold: float = Body(0.7),
-    word_count_threshold: int = Body(100)
+    threshold: float = Body(0.3),
+    word_count_threshold: int = Body(0),
+    save_results: bool = Body(False),
 ):
     """! @brief 执行向量搜索.
+    @param query 用户查询文本。
+    @param collection_id 要检索的向量集合。
+    @param top_k 返回的最大命中数量。
+    @param threshold 最低相似度分数。
+    @param word_count_threshold 最小词数过滤阈值。
+    @param save_results 是否保存检索结果。
     @return 包装在 results 对象中的搜索结果。
     """
     try:
@@ -412,7 +422,8 @@ async def search(
             collection_id=collection_id,
             top_k=top_k,
             threshold=threshold,
-            word_count_threshold=word_count_threshold
+            word_count_threshold=word_count_threshold,
+            save_results=save_results,
         )
         
         # 记录搜索结果
@@ -810,13 +821,14 @@ async def load_file(
 @app.post("/chunk")
 async def chunk_document(data: dict = Body(...)):
     """! @brief 对已读入文档重新分块。
-    @param data 请求体，包含 doc_id、chunking_option 和可选 chunk_size。
+    @param data 请求体，包含 doc_id、chunking_option 和可选 chunk_size/chunk_overlap。
     @return 分块后的文档数据。
     """
     try:
         doc_id = data.get("doc_id")
         chunking_option = data.get("chunking_option")
         chunk_size = data.get("chunk_size", 1000)
+        chunk_overlap = data.get("chunk_overlap", 0)
         
         if not doc_id or not chunking_option:
             raise HTTPException(
@@ -856,7 +868,8 @@ async def chunk_document(data: dict = Body(...)):
             method=chunking_option,
             metadata=metadata,
             page_map=page_map,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
         
         # 生成输出文件名

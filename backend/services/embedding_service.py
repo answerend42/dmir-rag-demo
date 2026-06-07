@@ -10,6 +10,7 @@ from datetime import datetime
 from enum import Enum
 import boto3
 from langchain_community.embeddings import BedrockEmbeddings, OpenAIEmbeddings, HuggingFaceEmbeddings
+from rag_core.embeddings import QwenApiEmbedder
 from utils.model_utils import get_huggingface_model_path
 
 class EmbeddingProvider(str, Enum):
@@ -20,6 +21,7 @@ class EmbeddingProvider(str, Enum):
     OPENAI = "openai"
     BEDROCK = "bedrock"
     HUGGINGFACE = "huggingface"
+    QWEN_API = "qwen_api"
 
 class EmbeddingConfig:
     """! @brief 单个嵌入模型的运行时配置。
@@ -63,6 +65,7 @@ class EmbeddingService:
             包含嵌入结果和元数据的元组
         """
         embedding_function = self.embedding_factory.create_embedding_function(config)
+        provider_value = self._provider_value(config.provider)
         
         chunks = input_data.get('chunks', [])
         filename = input_data.get('metadata', {}).get('filename', '')  # 获取文件名
@@ -71,8 +74,8 @@ class EmbeddingService:
         BATCH_SIZE = 20
         results = []
         
-        # 如果是OpenAI，使用批处理
-        if config.provider == EmbeddingProvider.OPENAI:
+        batch_providers = {EmbeddingProvider.OPENAI.value, EmbeddingProvider.QWEN_API.value}
+        if provider_value in batch_providers:
             for i in range(0, len(chunks), BATCH_SIZE):
                 batch = chunks[i:i + BATCH_SIZE]
                 # 提取当前批次的文本内容
@@ -91,7 +94,7 @@ class EmbeddingService:
                         "word_count": chunk["metadata"]["word_count"],
                         # "chunking_method": input_data.get("chunking_method", "loaded"),
                         "total_chunks": len(chunks),
-                        "embedding_provider": config.provider,
+                        "embedding_provider": provider_value,
                         "embedding_model": config.model_name,
                         "embedding_timestamp": datetime.now().isoformat(),
                         "vector_dimension": len(embedding_vector),
@@ -115,7 +118,7 @@ class EmbeddingService:
                     "word_count": chunk["metadata"]["word_count"],
                     # "chunking_method": input_data.get("chunking_method", "loaded"),
                     "total_chunks": len(chunks),
-                    "embedding_provider": config.provider,
+                    "embedding_provider": provider_value,
                     "embedding_model": config.model_name,
                     "embedding_timestamp": datetime.now().isoformat(),
                     "vector_dimension": len(embedding_vector),
@@ -130,6 +133,11 @@ class EmbeddingService:
         
         # 返回结果和空的metadata（因为metadata已经包含在每个embedding中）
         return results, {}
+
+    @staticmethod
+    def _provider_value(provider: str) -> str:
+        """! @brief 将枚举或字符串形式的 provider 统一为可序列化字符串。"""
+        return provider.value if isinstance(provider, EmbeddingProvider) else str(provider)
 
     def save_embeddings(self, doc_name: str, embeddings: list) -> str:
         """
@@ -289,5 +297,32 @@ class EmbeddingFactory:
             return HuggingFaceEmbeddings(
                 model_name=model_name
             )
+
+        elif config.provider == EmbeddingProvider.QWEN_API:
+            return QwenApiEmbeddingFunction(model_name=config.model_name)
             
         raise ValueError(f"Unsupported embedding provider: {config.provider}")
+
+
+class QwenApiEmbeddingFunction:
+    """! @brief 将契约层 QwenApiEmbedder 适配为旧 service 的 list[float] 接口。"""
+
+    def __init__(self, model_name: str):
+        """! @brief 初始化百炼 embedding 适配器。
+        @param model_name DashScope embedding 模型名。
+        """
+        self.embedder = QwenApiEmbedder(model=model_name)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """! @brief 批量生成文档向量。
+        @param texts 待向量化的文档分块文本。
+        @return 与 texts 顺序一致的向量列表。
+        """
+        return [embedding.vector for embedding in self.embedder.embed_batch(texts)]
+
+    def embed_query(self, text: str) -> list[float]:
+        """! @brief 生成查询向量。
+        @param text 用户查询文本。
+        @return 查询向量。
+        """
+        return self.embedder.embed_query(text).vector

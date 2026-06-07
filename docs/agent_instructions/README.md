@@ -16,4 +16,4 @@
 - 不得删除 fake/mock fallback。
 - 第一阶段默认测试数据是 `sample_data/course_qa_public.json`。
 - `answer_quality` 档次只能由评测脚本读取，禁止进入 RAG 索引、prompt、trace 或前端展示。
-- 新论文 RAG 任务已经并入现有 Issue 的阶段 B；课程 QA 跑通后继续按原 Issue 推进论文 corpus、论文 QA/evidence 和最终评测。
+- 新论文 RAG 任务已经并入现有 Issue 的阶段 B；默认论文 corpus 已固定为 LLM-Wiki digest，论文 QA/evidence 和最终评测结果位于 `sample_data/papers/` 与 `eval/results/paper_eval.*`。

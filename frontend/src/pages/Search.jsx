@@ -17,11 +17,11 @@ const Search = () => {
   const [results, setResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [topK, setTopK] = useState(3);
-  const [threshold, setThreshold] = useState(0.7);
+  const [threshold, setThreshold] = useState(0.3);
   const [collections, setCollections] = useState([]);
   const [providers, setProviders] = useState([]);
-  const [selectedProvider, setSelectedProvider] = useState('milvus');
-  const [wordCountThreshold, setWordCountThreshold] = useState(100);
+  const [selectedProvider, setSelectedProvider] = useState('chroma');
+  const [wordCountThreshold, setWordCountThreshold] = useState(0);
   const [saveResults, setSaveResults] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -83,10 +83,10 @@ const Search = () => {
 
       if (data.results && data.results.results && data.results.results.length > 0) {
         setResults(data.results.results);
-        if (saveResults && data.saved_filepath) {
-          setStatus(`搜索完成！结果已保存至: ${data.saved_filepath}`);
+        if (saveResults && data.results.saved_filepath) {
+          setStatus(`搜索完成，结果已保存至: ${data.results.saved_filepath}`);
         } else {
-          setStatus('搜索完成！');
+          setStatus('搜索完成');
         }
       } else {
         setResults([]);
@@ -94,7 +94,7 @@ const Search = () => {
       }
     } catch (error) {
       console.error('搜索错误:', error);
-      setStatus(`搜索出错: ${error.message}`);
+      setStatus(`搜索失败: ${error.message}`);
       setResults([]);
     } finally {
       setIsSearching(false);
@@ -153,7 +153,7 @@ const Search = () => {
                 <textarea
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Enter your search query..."
+                  placeholder="请输入检索问题..."
                   className="block w-full p-2 border rounded h-32 resize-none"
                 />
               </div>
@@ -180,7 +180,7 @@ const Search = () => {
                   onChange={(e) => setCollection(e.target.value)}
                   className="block w-full p-2 border rounded"
                 >
-                  <option value="">Choose a collection...</option>
+                  <option value="">请选择集合...</option>
                   {collections.map(coll => (
                     <option key={coll.id} value={coll.id}>
                       {coll.name} ({coll.count} documents)
@@ -218,7 +218,7 @@ const Search = () => {
 
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  包含最少单词个数: {wordCountThreshold}
+                  最少词数: {wordCountThreshold}
                 </label>
                 <input
                   type="range"
@@ -255,14 +255,14 @@ const Search = () => {
                 disabled={isSearching}
                 className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-blue-300"
               >
-                {isSearching ? '检索过程中...' : '检索'}
+                {isSearching ? '检索中...' : '检索'}
               </button>
             </div>
           </div>
 
           {status && (
             <div className={`p-4 rounded-lg ${
-              status.includes('错误') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              status.includes('失败') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
             }`}>
               {status}
             </div>
@@ -274,7 +274,7 @@ const Search = () => {
           {results.length > 0 ? (
             <div className="p-4">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Search Results</h3>
+                <h3 className="text-xl font-semibold">检索结果</h3>
                 <button
                   onClick={handleSaveResults}
                   className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
@@ -287,12 +287,12 @@ const Search = () => {
                   <div key={idx} className="p-4 border rounded bg-gray-50">
                     <div className="flex justify-between items-start mb-2">
                       <span className="font-medium text-sm text-gray-500">
-                        Match Score: {(result.score * 100).toFixed(1)}%
+                        匹配分数: {(result.score * 100).toFixed(1)}%
                       </span>
                       <div className="text-sm text-gray-500">
-                        <div>Source: {result.metadata.source}</div>
-                        <div>Page: {result.metadata.page}</div>
-                        <div>Chunk: {result.metadata.chunk}</div>
+                        <div>来源: {result.metadata.source}</div>
+                        <div>页码: {result.metadata.page}</div>
+                        <div>分块: {result.metadata.chunk}</div>
                       </div>
                     </div>
                     <p className="text-sm whitespace-pre-wrap">{result.text}</p>
@@ -301,7 +301,7 @@ const Search = () => {
               </div>
             </div>
           ) : (
-            <RandomImage message="Search results will appear here" />
+            <RandomImage message="检索结果会显示在这里" />
           )}
         </div>
       </div>

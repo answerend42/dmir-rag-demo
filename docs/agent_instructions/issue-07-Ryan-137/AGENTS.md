@@ -45,11 +45,11 @@
 
 阶段 B：新论文
 
-7. 当前先提供 `sample_data/papers/paper_eval_fixture.json` 作为格式 fixture。
-8. 后续找到 1 篇大模型未充分掌握的新论文后，替换 target paper metadata。
-9. 选择 2-4 篇相关干扰论文或背景论文，记录 metadata 和用途。
-10. 设计 20-30 个论文 QA，覆盖方法、实验数字、消融、图表/表格结论和与干扰论文的差异。
-11. 为每个论文问题标注 evidence：paper_id、page、section、paragraph/table/caption 线索。
+7. `sample_data/papers/paper_eval_fixture.json` 已固定为 LLM-Wiki 论文阶段 B 输入。
+8. 目标论文 metadata 已锁定为 arXiv:2605.25480 v2，source digest 为 `sample_data/papers/llm_wiki_retrieval_as_reasoning.md`。
+9. 已选择 4 篇相关干扰/背景论文，记录 metadata 和用途。
+10. 已设计 26 个论文 QA，覆盖方法、实验数字、消融、图表/表格结论和与干扰论文的差异。
+11. 每个论文问题都应保留 evidence：paper_id、page、section、paragraph/table/caption 线索。
 12. `run_eval.py` 必须同时支持课程 QA 数据集和论文数据集，输出同一套三模式指标。
 
 ## 验收命令

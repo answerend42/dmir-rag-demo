@@ -416,10 +416,7 @@ class VectorStoreService:
             # 创建/获取Collection，指定余弦相似度作为度量方式
             collection = self.client.get_or_create_collection(
                 name=collection_name,
-                metadata={"hnsw:space": "cosine"},  # 关键：指定使用余弦相似度空间
-                embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name=embeddings_data.get("embedding_model", "")  # 自动将文本转为384维向量
-                )
+                metadata={"hnsw:space": "cosine"}
             )
 
 
@@ -467,7 +464,7 @@ class VectorStoreService:
                     "embedding_model": embeddings_data.get("embedding_model", ""),  # 从顶层配置获取
                     "embedding_timestamp": str(emb["metadata"].get("embedding_timestamp", "")),
                     "index_mode": str(config._get_chroma_index_type()),
-                    "vector": [float(x) for x in emb.get("embedding", [])],
+                    "vector_dimension": vector_dim,
                 }
                 entities.append(entity)
                 collection.add(

@@ -1,6 +1,6 @@
 /**
  * @file ragDemoData.js
- * @brief 前端展示用课程 QA RagAnswer 示例和三模式评测摘要。
+ * @brief 前端展示用 RagAnswer 示例和三模式评测摘要。
  * @details 示例只包含 RagAnswer contract 可见字段，不包含隐藏评测标签。
  */
 
@@ -133,6 +133,30 @@ export const demoEvaluationSummary = {
     cited: 5,
     refused: 1,
     avg_latency_ms: 1680,
+    note: '预留 query rewrite / rerank / grounded prompt。',
+  },
+};
+
+export const paperDemoEvaluationSummary = {
+  llm_only: {
+    answerable: 26,
+    cited: 0,
+    refused: 0,
+    avg_latency_ms: 2.2,
+    note: '不使用检索证据，用于展示纯模型盲区。',
+  },
+  basic_rag: {
+    answerable: 26,
+    cited: 26,
+    refused: 0,
+    avg_latency_ms: 2.4,
+    note: 'dense top-k 检索后直接生成。',
+  },
+  optimized_rag: {
+    answerable: 26,
+    cited: 26,
+    refused: 0,
+    avg_latency_ms: 2.4,
     note: '预留 query rewrite / rerank / grounded prompt。',
   },
 };

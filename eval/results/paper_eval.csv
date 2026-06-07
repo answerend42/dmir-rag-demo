@@ -1,4 +1,4 @@
 mode,total,answerable,cited,refused,citation_hit,groundedness,avg_latency_ms,label_distribution,note
-llm_only,3,3,0,0,0.0,0.0,0.304,{},不使用检索证据，用于展示纯模型盲区。
-basic_rag,3,3,3,0,1.0,1.0,0.276,{},dense top-k 检索后直接生成。
-optimized_rag,3,3,3,0,1.0,1.0,0.285,{},预留 query rewrite / rerank / grounded prompt，对证据不足场景更谨慎。
+llm_only,26,26,0,0,0.0,0.0,2.159,{},不使用检索证据，用于展示纯模型盲区。
+basic_rag,26,26,26,0,1.0,1.0,2.246,{},dense top-k 检索后直接生成。
+optimized_rag,26,26,26,0,1.0,1.0,2.319,{},预留 query rewrite / rerank / grounded prompt，对证据不足场景更谨慎。

@@ -132,12 +132,31 @@ class SearchService:
             logger.error(f"Error saving search results: {str(e)}")
             raise
 
+    @staticmethod
+    def _get_sample_metadata(collection) -> Dict[str, Any]:
+        """! @brief 从 Chroma 集合读取一条已入库 metadata，用于恢复 embedding 配置。
+        @param collection Chroma collection 对象。
+        @return 第一条非空 metadata。
+        @throws ValueError 集合为空或没有 embedding 配置时抛出。
+        """
+        sample = collection.get(limit=1, include=["metadatas"])
+        metadatas = sample.get("metadatas") or []
+        if metadatas and isinstance(metadatas[0], list):
+            metadatas = metadatas[0]
+        if not metadatas:
+            raise ValueError("Collection is empty or missing metadata")
+
+        metadata = metadatas[0]
+        if not metadata.get("embedding_provider") or not metadata.get("embedding_model"):
+            raise ValueError("Collection metadata missing embedding provider/model")
+        return metadata
+
     async def search(self,
                      query: str,
                      collection_id: str,
                      top_k: int = 3,
-                     threshold: float = 0.7,
-                     word_count_threshold: int = 20,
+                     threshold: float = 0.3,
+                     word_count_threshold: int = 0,
                      save_results: bool = False) -> Dict[str, Any]:
         """! @brief 执行向量搜索，并可选择持久化结果。
         @param query 用户查询文本。
@@ -154,8 +173,8 @@ class SearchService:
             query (str): 搜索查询文本
             collection_id (str): 要搜索的集合ID
             top_k (int): 返回的最大结果数量，默认为3
-            threshold (float): 相似度阈值，低于此值的结果将被过滤，默认为0.7
-            word_count_threshold (int): 文本字数阈值，低于此值的结果将被过滤，默认为20
+            threshold (float): 相似度阈值，低于此值的结果将被过滤，默认为0.3
+            word_count_threshold (int): 文本字数阈值，低于此值的结果将被过滤，默认为0
             save_results (bool): 是否保存搜索结果，默认为False
 
         返回:
@@ -188,17 +207,14 @@ class SearchService:
 
             logger.info(f"query: {query}")
 
-            sample_entity =collection.query(
-                query_texts=[query],
-                n_results=1,
-            )
+            sample_metadata = self._get_sample_metadata(collection)
 
             # 使用collection中存储的配置创建查询向量
             logger.info("Creating query embedding")
             query_embedding = self.embedding_service.create_single_embedding(
                 query,
-                provider=sample_entity['metadatas'][0][0].get('embedding_provider'),
-                model=sample_entity['metadatas'][0][0].get('embedding_model')
+                provider=sample_metadata.get('embedding_provider'),
+                model=sample_metadata.get('embedding_model')
             )
             logger.info(f"Query embedding created with dimension: {len(query_embedding)}")
 
@@ -216,8 +232,9 @@ class SearchService:
 
             for hit in range(results_count):
                 hit_score=1-results['distances'][0][hit]
-                logger.info(f"Processing hit - Score: {hit_score}, Word Count: {results['metadatas'][0][hit].get('word_count')}")
-                if hit_score >= threshold:
+                word_count = int(results['metadatas'][0][hit].get('word_count') or 0)
+                logger.info(f"Processing hit - Score: {hit_score}, Word Count: {word_count}")
+                if hit_score >= threshold and word_count >= word_count_threshold:
                     processed_results.append({
                         "text": results.get('documents')[0][hit],
                         "score": float(hit_score),

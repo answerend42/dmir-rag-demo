@@ -156,11 +156,14 @@ retrieved hits、trace 和前端展示；只允许 #7 评测脚本在生成完�
 
 - `backend/rag_core/parsers/research_paper.py`
 - `backend/rag_core/chunkers/research_paper.py`
-- `sample_data/papers/demo_research_paper.md`
+- `sample_data/papers/llm_wiki_retrieval_as_reasoning.md`
 - `sample_data/papers/paper_eval_fixture.json`
+- `sample_data/papers/demo_research_paper.md`
 
-当前 parser 优先支持 Markdown fixture；PDF 路径通过 PyMuPDF 懒加载，缺依赖时不会阻塞
-课程 QA 默认链路。`ResearchPaperChunker` 输出仍使用 `Chunk` contract，并在 metadata 中保留：
+当前默认论文输入是 LLM-Wiki 论文的中文结构化 digest。`demo_research_paper.md` 只保留给
+parser/chunker 最小 contract test 使用。parser 优先支持 Markdown；PDF 路径通过 PyMuPDF
+懒加载，缺依赖时不会阻塞课程 QA 默认链路。`ResearchPaperChunker` 输出仍使用 `Chunk`
+contract，并在 metadata 中保留：
 
 - `page_numbers`
 - `section_path`
@@ -168,8 +171,8 @@ retrieved hits、trace 和前端展示；只允许 #7 评测脚本在生成完�
 - `parser_name`
 - `line_start` / `line_end`
 
-真实目标论文确定后，应替换 `sample_data/papers/` 下的 metadata、corpus 和 QA/evidence，
-而不是重新设计接口。
+LLM-Wiki 论文已经作为 #5/#7/#8 阶段 B 默认 corpus 固定到 `sample_data/papers/`；
+后续如果替换论文，只需要替换同路径格式的 metadata、corpus 和 QA/evidence，而不是重新设计接口。
 
 ## 离线评测结果端点
 
@@ -177,7 +180,7 @@ retrieved hits、trace 和前端展示；只允许 #7 评测脚本在生成完�
 
 ```shell
 python scripts/run_eval.py --dataset-type course_qa --modes all --limit 5
-python scripts/run_eval.py --dataset-type paper --modes all --limit 3
+python scripts/run_eval.py --dataset-type paper --modes all --limit 26
 ```
 
 脚本输出：
@@ -193,9 +196,10 @@ python scripts/run_eval.py --dataset-type paper --modes all --limit 3
 
 ```http
 GET /eval/results/course_qa_eval.json
+GET /eval/results/paper_eval.json
 ```
 
-前端 dashboard 只读取 JSON 摘要。`answer_quality` 字段不得进入这些前端可读结果；
+前端 dashboard 只读取 JSON 摘要，并可在课程 QA 与 LLM-Wiki 论文结果之间切换。`answer_quality` 字段不得进入这些前端可读结果；
 评测脚本只允许在生成完成后读取 labels，并输出不含隐藏字段名的汇总分布。
 
 ## `/rag/answer` 输出目标

@@ -15,9 +15,17 @@ import {
   normalizeEvaluationSummary,
   removeForbiddenFields,
 } from '../components/rag/ragViewModel';
-import { courseQaMockRagAnswer, demoEvaluationSummary } from '../config/ragDemoData';
+import { courseQaMockRagAnswer, demoEvaluationSummary, paperDemoEvaluationSummary } from '../config/ragDemoData';
 
 const DEFAULT_COURSE_QA_QUERY = '什么是自然语言处理？';
+const EVALUATION_DATASETS = [
+  { key: 'course_qa', label: '课程 QA', filename: 'course_qa_eval.json' },
+  { key: 'paper', label: 'LLM-Wiki 论文', filename: 'paper_eval.json' },
+];
+const EVALUATION_FALLBACKS = {
+  course_qa: demoEvaluationSummary,
+  paper: paperDemoEvaluationSummary,
+};
 
 /**
  * @brief 渲染回答生成控件和检索上下文预览。
@@ -51,13 +59,15 @@ const Generation = () => {
     message: '主路径为 POST /rag/answer；后端不可用时可使用课程 QA Mock fallback。',
   });
   const [legacyStatus, setLegacyStatus] = useState(null);
-  const [evaluationSummary, setEvaluationSummary] = useState(demoEvaluationSummary);
+  const [selectedEvaluationDataset, setSelectedEvaluationDataset] = useState('course_qa');
+  const [evaluationSummaries, setEvaluationSummaries] = useState(EVALUATION_FALLBACKS);
   const [evaluationStatus, setEvaluationStatus] = useState({
     type: 'info',
     message: '正在尝试加载评测摘要，失败时使用 fallback 摘要。',
   });
 
   const safeRagAnswer = useMemo(() => createSafeRagAnswerViewModel(ragAnswer), [ragAnswer]);
+  const selectedEvaluationSummary = evaluationSummaries[selectedEvaluationDataset] || EVALUATION_FALLBACKS[selectedEvaluationDataset];
 
   /** @brief 加载旧生成流程的可选数据；失败不影响 /rag/answer dashboard。 */
   useEffect(() => {
@@ -89,20 +99,35 @@ const Generation = () => {
     fetchData();
   }, []);
 
-  /** @brief 预留评测摘要加载入口；后端或静态文件不可用时保留 fallback。 */
+  /** @brief 加载课程 QA 与论文评测摘要；后端或静态文件不可用时保留 fallback。 */
   useEffect(() => {
-    const fetchEvaluationSummary = async () => {
-      try {
-        const response = await fetch(`${apiBaseUrl}/eval/results/course_qa_eval.json`);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+    const fetchEvaluationSummaries = async () => {
+      const loadedSummaries = {};
+      const failedLabels = [];
+
+      await Promise.all(EVALUATION_DATASETS.map(async (dataset) => {
+        try {
+          const response = await fetch(`${apiBaseUrl}/eval/results/${dataset.filename}`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const payload = await response.json();
+          loadedSummaries[dataset.key] = normalizeEvaluationSummary(payload);
+        } catch (error) {
+          console.info(`Evaluation summary fallback: ${dataset.filename}`, error);
+          failedLabels.push(dataset.label);
         }
-        const payload = await response.json();
-        setEvaluationSummary(normalizeEvaluationSummary(payload));
-        setEvaluationStatus({ type: 'info', message: '已加载评测摘要。' });
-      } catch (error) {
-        console.info('Evaluation summary fallback:', error);
-        setEvaluationSummary(demoEvaluationSummary);
+      }));
+
+      setEvaluationSummaries({ ...EVALUATION_FALLBACKS, ...loadedSummaries });
+      if (Object.keys(loadedSummaries).length === EVALUATION_DATASETS.length) {
+        setEvaluationStatus({ type: 'info', message: '已加载课程 QA 与 LLM-Wiki 论文评测摘要。' });
+      } else if (Object.keys(loadedSummaries).length > 0) {
+        setEvaluationStatus({
+          type: 'error',
+          message: `部分评测摘要暂不可用：${failedLabels.join('、')}。缺失项显示 fallback。`,
+        });
+      } else {
         setEvaluationStatus({
           type: 'error',
           message: '评测摘要暂不可用，当前显示 fallback 示例摘要。',
@@ -110,7 +135,7 @@ const Generation = () => {
       }
     };
 
-    fetchEvaluationSummary();
+    fetchEvaluationSummaries();
   }, []);
 
   /** @brief 加载选中的搜索结果文件内容。 */
@@ -442,7 +467,13 @@ const Generation = () => {
             trace={safeRagAnswer.trace}
           />
 
-          <EvaluationDashboard summary={evaluationSummary} status={evaluationStatus} />
+          <EvaluationDashboard
+            summary={selectedEvaluationSummary}
+            status={evaluationStatus}
+            datasets={EVALUATION_DATASETS}
+            selectedDataset={selectedEvaluationDataset}
+            onSelectDataset={setSelectedEvaluationDataset}
+          />
 
           <div className="rounded-lg border bg-white p-4 shadow-sm">
             <h3 className="mb-4 text-xl font-semibold">旧流程检索上下文</h3>

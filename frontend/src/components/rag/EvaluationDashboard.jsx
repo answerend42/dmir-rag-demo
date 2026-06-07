@@ -14,17 +14,41 @@ const asDisplayValue = (value) => {
 
 /**
  * @brief 渲染三模式评测表。
- * @param {{summary: object}} props 组件属性。
+ * @param {{summary: object, datasets?: Array<object>}} props 组件属性。
  * @returns {JSX.Element} 评测 dashboard。
  */
-const EvaluationDashboard = ({ summary, status }) => {
+const EvaluationDashboard = ({ summary, status, datasets = [], selectedDataset, onSelectDataset }) => {
   const rows = buildEvaluationRows(summary);
+  const showDatasetSwitch = datasets.length > 1 && typeof onSelectDataset === 'function';
 
   return (
     <section className="rounded-lg border bg-white p-4 shadow-sm">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">三模式评测</h3>
-        <p className="text-xs text-gray-500">优先读取评测摘要；不可用时使用前端 fallback。</p>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">三模式评测</h3>
+          <p className="text-xs text-gray-500">课程 QA 与 LLM-Wiki 论文评测摘要。</p>
+        </div>
+        {showDatasetSwitch && (
+          <div className="inline-flex overflow-hidden rounded border border-gray-200 bg-gray-50 text-sm">
+            {datasets.map((dataset) => {
+              const isActive = dataset.key === selectedDataset;
+              return (
+                <button
+                  key={dataset.key}
+                  type="button"
+                  onClick={() => onSelectDataset(dataset.key)}
+                  className={`min-w-24 px-3 py-1.5 font-medium transition ${
+                    isActive
+                      ? 'bg-slate-900 text-white'
+                      : 'text-gray-600 hover:bg-white hover:text-gray-900'
+                  }`}
+                >
+                  {dataset.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {status && (

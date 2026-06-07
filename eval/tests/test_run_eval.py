@@ -54,4 +54,5 @@ def test_paper_eval_fixture_runs(tmp_path):
     payload = json.loads((tmp_path / "paper_eval.json").read_text(encoding="utf-8"))
 
     assert payload["dataset_type"] == "paper"
+    assert payload["metadata"]["target_paper"]["paper_id"] == "llm-wiki-2605.25480"
     assert payload["summary"]["basic_rag"]["total"] == 1
