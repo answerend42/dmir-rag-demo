@@ -23,7 +23,7 @@ const App = () => {
     <Router>
       <div className="flex">
         <Sidebar />
-        <main className="ml-64 flex-1 min-h-screen bg-gray-100">
+        <main className="app-main ml-64 flex-1 min-h-screen">
           <Routes>
             <Route path="/load-file" element={<LoadFile />} />  
             <Route path="/chunk-file" element={<ChunkFile />} />  

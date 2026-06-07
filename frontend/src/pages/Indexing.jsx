@@ -92,13 +92,13 @@ const Indexing = () => {
       }
     } catch (error) {
       console.error('Error fetching embedded files:', error);
-      setStatus('Error loading embedding files');
+      setStatus('加载向量文件失败');
     }
   };
 
   const fetchCollections = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/collections}`);
+      const response = await fetch(`${apiBaseUrl}/collections?provider=${selectedProvider}`);
       const data = await response.json();
       setCollections(data.collections || []);
     } catch (error) {
@@ -108,11 +108,11 @@ const Indexing = () => {
 
   const handleIndex = async () => {
     if (!embeddingFile) {
-      setStatus('Please select an embedding file');
+      setStatus('请选择需要索引的向量文件');
       return;
     }
 
-    setStatus('Indexing...');
+    setStatus('正在建立索引...');
     try {
       const response = await fetch(`${apiBaseUrl}/index`, {
         method: 'POST',
@@ -128,10 +128,10 @@ const Indexing = () => {
       
       const data = await response.json();
       setIndexingResult(data);
-      setStatus('Indexing completed successfully');
+      setStatus('索引建立完成');
     } catch (error) {
       console.error('Error indexing:', error);
-      setStatus('Error during indexing: ' + error.message);
+      setStatus('索引失败: ' + error.message);
     }
   };
 
@@ -172,7 +172,7 @@ const Indexing = () => {
   const handleDelete = async (collectionName) => {
     if (!collectionName) return;
     
-    if (window.confirm(`Are you sure you want to delete collection "${collectionName}"?`)) {
+    if (window.confirm(`确定要删除集合 "${collectionName}" 吗？`)) {
       try {
         await fetch(`${apiBaseUrl}/collections/${selectedProvider}/${collectionName}`, {
           method: 'DELETE',
@@ -206,7 +206,7 @@ const Indexing = () => {
                 onChange={(e) => setEmbeddingFile(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                <option value="">Choose a file...</option>
+                  <option value="">请选择文件...</option>
                 {embeddedFiles.map(file => (
                   <option key={file.name} value={file.name}>
                     {file.displayName}
@@ -266,10 +266,10 @@ const Indexing = () => {
                   onChange={(e) => setSelectedCollection(e.target.value)}
                   className="block w-full p-2 border rounded"
                 >
-                  <option value="">Choose a collection...</option>
+                  <option value="">请选择集合...</option>
                   {collections.map(coll => (
                     <option key={coll.id} value={coll.id}>
-                      {coll.name} ({coll.count} documents)
+                      {coll.name} ({coll.count} 个文档)
                     </option>
                   ))}
                 </select>
@@ -310,22 +310,22 @@ const Indexing = () => {
               <div className="space-y-3">
                 <div className="p-3 border rounded bg-gray-50">
                   <div className="text-sm text-gray-600">
-                    <p>Database: {indexingResult.database}</p>
+                    <p>数据库: {indexingResult.database}</p>
                     {indexingResult.index_mode && (
-                      <p>Index Mode: {indexingResult.index_mode}</p>
+                      <p>索引模式: {indexingResult.index_mode}</p>
                     )}
-                    <p>Total Vectors: {indexingResult.total_vectors}</p>
-                    <p>Index Size: {indexingResult.index_size}</p>
+                    <p>向量总数: {indexingResult.total_vectors}</p>
+                    <p>索引大小: {indexingResult.index_size}</p>
                     {indexingResult.processing_time && (
-                      <p>Processing Time: {indexingResult.processing_time}s</p>
+                      <p>处理耗时: {indexingResult.processing_time}s</p>
                     )}
-                    <p>Collection Name: {indexingResult.collection_name}</p>
+                    <p>集合名称: {indexingResult.collection_name}</p>
                   </div>
                 </div>
               </div>
             </div>
           ) : (
-            <RandomImage message="Indexing results will appear here" />
+            <RandomImage message="选择向量文件并建立索引后，这里会显示向量库集合和索引统计。" />
           )}
         </div>
       </div>

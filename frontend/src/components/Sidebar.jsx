@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import ragLogo from '../assets/raglogo.png'
+import ragLogo from '../assets/raglogo.png';
 
 /**
  * @brief 渲染路由链接并高亮当前工作流步骤。
@@ -24,31 +24,36 @@ const Sidebar = () => {
   ];
 
   return (
-    <div className="w-64 bg-gray-800 h-screen fixed left-0 top-0">
+    <aside className="app-sidebar fixed left-0 top-0 h-screen w-64">
       <div className="p-4">
         <img 
           src={ragLogo} 
-          alt="Logo" 
-          className="w-full mb-6 rounded"
+          alt="RAG Demo"
+          className="mb-4 w-full rounded"
         />
+        <div className="rounded border px-3 py-2 text-xs">
+          <div className="font-semibold">RAG Demo</div>
+          <div className="mt-1 opacity-75">从文档到证据回答</div>
+        </div>
       </div>
-      <nav>
-        {links.map(link => (
+      <nav className="px-3">
+        {links.map((link, index) => (
           <Link
             key={link.to}
             to={link.to}
-            className={`block px-4 py-3 text-gray-300 hover:bg-gray-700 ${
-              location.pathname === link.to ? 'bg-gray-700' : ''
-            }`}
+            className={`sidebar-link ${location.pathname === link.to ? 'sidebar-link-active' : ''}`}
           >
-            {link.text}
+            <span className="sidebar-step">{String(index + 1).padStart(2, '0')}</span>
+            <span>{link.text}</span>
           </Link>
         ))}
       </nav>
-      <div className="bg-black-500 text-white p-7">
-            <h5 className="text-xs">在黄佳著的参考资料RAG框架项目上稍作修改 </h5>
+      <div className="absolute bottom-0 left-0 right-0 p-4">
+        <div className="rounded border px-3 py-3 text-xs leading-6 opacity-80">
+          基于课程参考 RAG 框架改造，用于展示完整检索增强生成流程。
+        </div>
       </div>
-    </div>
+    </aside>
   );
 };
 

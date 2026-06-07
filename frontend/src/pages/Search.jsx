@@ -183,7 +183,7 @@ const Search = () => {
                   <option value="">请选择集合...</option>
                   {collections.map(coll => (
                     <option key={coll.id} value={coll.id}>
-                      {coll.name} ({coll.count} documents)
+                      {coll.name} ({coll.count} 个文档)
                     </option>
                   ))}
                 </select>
@@ -279,7 +279,7 @@ const Search = () => {
                   onClick={handleSaveResults}
                   className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
                 >
-                  保存搜索结果
+                  保存检索结果
                 </button>
               </div>
               <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
@@ -301,7 +301,7 @@ const Search = () => {
               </div>
             </div>
           ) : (
-            <RandomImage message="检索结果会显示在这里" />
+            <RandomImage message="输入问题并选择集合后，这里会显示相似性检索命中的证据分块。" />
           )}
         </div>
       </div>

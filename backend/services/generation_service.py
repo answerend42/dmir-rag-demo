@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import torch
+import dotenv
 from openai import OpenAI
 import requests
 from utils.model_utils import get_huggingface_model_path
@@ -22,6 +23,37 @@ import time
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 logger = logging.getLogger(__name__)
+dotenv.load_dotenv()
+
+GROUNDED_SYSTEM_PROMPT = (
+    "你是 RAG 演示系统的中文回答生成器。必须只基于提供的检索证据回答；"
+    "如果证据不足，请明确说明“证据不足，无法回答”。如果问题要求具体数字、"
+    "表格对比或排名，必须列出证据中的原始数值，不能只给差值或概括。"
+    "回答使用中文 Markdown，并尽量用 [证据N] 标注依据。"
+)
+LLM_ONLY_SYSTEM_PROMPT = (
+    "你是 RAG 演示系统的纯模型回答器。当前模式不使用检索证据，"
+    "请直接基于模型知识用中文 Markdown 回答。若问题依赖特定课程、论文或私有资料细节，"
+    "必须说明无法核验外部证据，不要伪装成已检索。"
+)
+
+
+def _build_chat_messages(query: str, context: str, rag_mode: str) -> List[Dict[str, str]]:
+    """! @brief 根据 RAG 模式构造中文聊天消息。
+    @param query 用户问题。
+    @param context 已编号的检索证据文本。
+    @param rag_mode 当前生成模式。
+    @return 可传给 OpenAI 兼容接口的 messages。
+    """
+    if rag_mode == "llm_only":
+        return [
+            {"role": "system", "content": LLM_ONLY_SYSTEM_PROMPT},
+            {"role": "user", "content": f"问题：{query}\n\n请直接回答："},
+        ]
+    return [
+        {"role": "system", "content": GROUNDED_SYSTEM_PROMPT},
+        {"role": "user", "content": f"问题：{query}\n\n检索证据：\n{context}\n\n请基于以上证据回答："},
+    ]
 
 
 class GenerationService:
@@ -111,6 +143,7 @@ class GenerationService:
             query: str,
             context: str,
             load_model: bool,
+            rag_mode: str = "basic_rag",
             max_length: int = 1024,
     ) -> str:
         """
@@ -131,14 +164,23 @@ class GenerationService:
 
             # 构建提示
             # prompt = f"""请基于以下上下文回答问题。如果上下文中没有相关信息，请说明无法回答。
-            prompt = ChatPromptTemplate.from_template("""请基于上下文与回话记录回答问题。如果上下文和回话记录中没有相关信息，请直接根据问题回答。
+            template = (
+                """请直接基于模型知识回答问题。如果问题依赖特定课程、论文或私有资料细节，请明确说明无法核验外部证据。
+                        回话记录：{history}
+                        问题：{query}
+
+                        回答："""
+                if rag_mode == "llm_only"
+                else """请基于上下文与回话记录回答问题。如果上下文和回话记录中没有相关信息，请明确说明“证据不足，无法回答”，不要自由发挥。如果问题要求具体数字、表格对比或排名，必须列出证据中的原始数值，不能只给差值或概括。
                         回话记录：{history}
                         问题：{query}
 
                         上下文：
                         {context}
 
-                        回答：""")
+                        回答："""
+            )
+            prompt = ChatPromptTemplate.from_template(template)
 
             # inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
             # outputs = model.generate(
@@ -182,7 +224,8 @@ AI回复：{responseInfo}
             model_name: str,
             query: str,
             context: str,
-            api_key: Optional[str] = None
+            api_key: Optional[str] = None,
+            rag_mode: str = "basic_rag",
     ) -> str:
         """
         使用OpenAI API生成回答
@@ -204,11 +247,7 @@ AI回复：{responseInfo}
 
             # client = OpenAI(api_key=api_key)
 
-            messages = [
-                {"role": "system",
-                 "content": "You are a helpful assistant. Use the provided context to answer the question."},
-                {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
-            ]
+            messages = _build_chat_messages(query, context, rag_mode)
 
             completion = client.chat.completions.create(
                 model=self.models["aliyun"][model_name],
@@ -258,7 +297,8 @@ AI回复：{responseInfo}
             query: str,
             context: str,
             api_key: Optional[str] = None,
-            show_reasoning: bool = True
+            show_reasoning: bool = True,
+            rag_mode: str = "basic_rag",
     ) -> str:
         """
         使用DeepSeek API生成回答
@@ -284,11 +324,7 @@ AI回复：{responseInfo}
                 base_url="https://api.deepseek.com"
             )
 
-            messages = [
-                {"role": "system",
-                 "content": "You are a helpful assistant. Use the provided context to answer the question."},
-                {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
-            ]
+            messages = _build_chat_messages(query, context, rag_mode)
 
             response = client.chat.completions.create(
                 model=self.models["deepseek"][model_name],
@@ -322,6 +358,7 @@ AI回复：{responseInfo}
             load_model: bool,
             api_key: Optional[str] = None,
             show_reasoning: bool = True,
+            rag_mode: str = "basic_rag",
     ) -> Dict:
         """! @brief 生成回答并持久化生成结果。
         @param provider 模型提供方，例如 huggingface、aliyun 或 deepseek。
@@ -331,6 +368,7 @@ AI回复：{responseInfo}
         @param load_model 调用前是否需要加载本地模型。
         @param api_key 托管提供方的可选 API 密钥。
         @param show_reasoning 支持时是否包含推理输出。
+        @param rag_mode 生成模式，支持 basic_rag、optimized_rag 和 llm_only。
         @return 回答文本和保存文件路径。
 
         生成回答并保存结果
@@ -343,25 +381,34 @@ AI回复：{responseInfo}
             api_key: API密钥（对于API调用）
             show_reasoning: 是否显示推理过程（仅对DeepSeek推理模型有效）
             load_model: 是否装载模型
+            rag_mode: 当前 RAG 模式
 
         返回:
             包含生成回答和保存路径的字典
         """
         try:
+            normalized_rag_mode = rag_mode or "basic_rag"
             # 准备上下文
             context = "\n\n".join([
-                f"[Source {i + 1}]: {result['text']}"
+                f"[证据{i + 1}]: {result['text']}"
                 for i, result in enumerate(search_results)
             ])
 
             ts = time.time()
             # 根据不同提供商生成回答
             if provider == "huggingface":
-                response = self._generate_with_huggingface(model_name, query, context, load_model)
+                response = self._generate_with_huggingface(model_name, query, context, load_model, normalized_rag_mode)
             elif provider == "aliyun":
-                response = self._generate_with_aliyun(model_name, query, context, api_key)
+                response = self._generate_with_aliyun(model_name, query, context, api_key, normalized_rag_mode)
             elif provider == "deepseek":
-                response = self._generate_with_deepseek(model_name, query, context, api_key, show_reasoning)
+                response = self._generate_with_deepseek(
+                    model_name,
+                    query,
+                    context,
+                    api_key,
+                    show_reasoning,
+                    normalized_rag_mode,
+                )
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
 
@@ -371,6 +418,7 @@ AI回复：{responseInfo}
                 "timestamp": datetime.now().isoformat(),
                 "provider": provider,
                 "model": model_name,
+                "rag_mode": normalized_rag_mode,
                 "response": response,
                 "context": search_results
             }

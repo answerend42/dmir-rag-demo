@@ -32,15 +32,17 @@ const RandomImage = ({ message }) => {
   }, []);
 
   return (
-    <div className="h-full flex flex-col items-center justify-center text-gray-500 p-6">
+    <div className="flex h-full min-h-[420px] flex-col items-center justify-center p-6 text-gray-500">
       {randomImage && (
-        <img 
-          src={randomImage} 
-          alt="Empty state illustration" 
-          className="w-full h-[300px] object-cover mb-4"
-        />
+        <div className="w-full max-w-2xl overflow-hidden rounded border bg-white p-2 shadow-sm">
+          <img
+            src={randomImage}
+            alt="空状态插图"
+            className="h-[260px] w-full rounded object-cover"
+          />
+        </div>
       )}
-      <p>{message}</p>
+      <p className="mt-5 max-w-xl text-center text-sm leading-7">{message}</p>
     </div>
   );
 };

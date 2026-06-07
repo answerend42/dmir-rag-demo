@@ -21,11 +21,11 @@ const ParseFile = () => {
 
   const handleProcess = async () => {
     if (!file || !loadingMethod || !parsingOption) {
-      setStatus('Please select all required options');
+      setStatus('请选择文件、装载工具和解析选项');
       return;
     }
 
-    setStatus('Processing...');
+    setStatus('正在解析文件...');
     setParsedContent(null);
     setIsProcessed(false);
 
@@ -46,11 +46,11 @@ const ParseFile = () => {
 
       const data = await response.json();
       setParsedContent(data.parsed_content);
-      setStatus('Processing completed successfully!');
+      setStatus('文件解析完成');
       setIsProcessed(true);
     } catch (error) {
       console.error('Error:', error);
-      setStatus(`Error: ${error.message}`);
+      setStatus(`解析失败: ${error.message}`);
     }
   };
 
@@ -105,10 +105,10 @@ const ParseFile = () => {
                 onChange={(e) => setParsingOption(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                <option value="all_text">All Text</option>
-                <option value="by_pages">By Pages</option>
-                <option value="by_titles">By Titles</option>
-                <option value="text_and_tables">Text and Tables</option>
+                <option value="all_text">全部文本</option>
+                <option value="by_pages">按页解析</option>
+                <option value="by_titles">按标题解析</option>
+                <option value="text_and_tables">文本和表格</option>
               </select>
             </div>
 
@@ -126,20 +126,20 @@ const ParseFile = () => {
         <div className="col-span-9 border rounded-lg bg-white shadow-sm">
           {parsedContent ? (
             <div className="p-4">
-              <h3 className="text-xl font-semibold mb-4">Parsing Results</h3>
+              <h3 className="text-xl font-semibold mb-4">解析结果</h3>
               <div className="mb-4 p-3 border rounded bg-gray-100">
-                <h4 className="font-medium mb-2">Document Information</h4>
+                <h4 className="font-medium mb-2">文档信息</h4>
                 <div className="text-sm text-gray-600">
-                  <p>Total Pages: {parsedContent.metadata?.total_pages}</p>
-                  <p>Parsing Method: {parsedContent.metadata?.parsing_method}</p>
-                  <p>Timestamp: {parsedContent.metadata?.timestamp && new Date(parsedContent.metadata.timestamp).toLocaleString()}</p>
+                  <p>总页数: {parsedContent.metadata?.total_pages}</p>
+                  <p>解析方法: {parsedContent.metadata?.parsing_method}</p>
+                  <p>时间: {parsedContent.metadata?.timestamp && new Date(parsedContent.metadata.timestamp).toLocaleString()}</p>
                 </div>
               </div>
               <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
                 {parsedContent.content.map((item, idx) => (
                   <div key={idx} className="p-3 border rounded bg-gray-50">
                     <div className="font-medium text-sm text-gray-500 mb-1">
-                      {item.type} - Page {item.page}
+                      {item.type} - 第 {item.page} 页
                     </div>
                     {item.title && (
                       <div className="font-bold text-gray-700 mb-2">
@@ -154,7 +154,7 @@ const ParseFile = () => {
               </div>
             </div>
           ) : (
-            <RandomImage message="Upload and parse a file to see the results here" />
+            <RandomImage message="上传并解析 PDF 后，这里会显示按选项抽取出的文本、标题或表格内容。" />
           )}
         </div>
       </div>

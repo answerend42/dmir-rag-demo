@@ -98,11 +98,11 @@ const EmbeddingFile = () => {
 
   const handleEmbed = async () => {
     if (!selectedDoc) {
-      setStatus('Please select a document');
+      setStatus('请选择文档');
       return;
     }
     
-    setStatus('Processing...');
+    setStatus('正在生成向量...');
     try {
       const response = await fetch(`${apiBaseUrl}/embed`, {
         method: 'POST',
@@ -118,16 +118,16 @@ const EmbeddingFile = () => {
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create embeddings');
+        throw new Error(errorData.detail || '生成向量失败');
       }
       
       const data = await response.json();
       setEmbeddings(data.embeddings);
-      setStatus(`Embedding completed successfully! Saved to: ${data.filepath}`);
+      setStatus(`向量生成完成，已保存至: ${data.filepath}`);
       fetchEmbeddedDocs(); // 刷新嵌入文档列表
     } catch (error) {
       console.error('Error:', error);
-      setStatus('Error generating embeddings: ' + error.message);
+      setStatus('生成向量失败: ' + error.message);
     }
   };
 
@@ -141,20 +141,20 @@ const EmbeddingFile = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      setStatus('Embedding deleted successfully');
+      setStatus('向量文件已删除');
       fetchEmbeddedDocs();
       if (embeddings && selectedDoc === docName) {
         setEmbeddings(null);
       }
     } catch (error) {
       console.error('Error deleting embedding:', error);
-      setStatus(`Error deleting embedding: ${error.message}`);
+      setStatus(`删除向量文件失败: ${error.message}`);
     }
   };
 
   const handleViewEmbedding = async (docName) => {
     try {
-      setStatus('Loading embedding...');
+      setStatus('正在加载向量文件...');
       const response = await fetch(`${apiBaseUrl}/embedded-docs/${docName}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -165,7 +165,7 @@ const EmbeddingFile = () => {
       setStatus('');
     } catch (error) {
       console.error('Error loading embedding:', error);
-      setStatus(`Error loading embedding: ${error.message}`);
+      setStatus(`加载向量文件失败: ${error.message}`);
     }
   };
 
@@ -199,26 +199,26 @@ const EmbeddingFile = () => {
         {activeTab === 'preview' ? (
           embeddings ? (
             <div>
-              <h3 className="text-xl font-semibold mb-4">Embedding Results</h3>
+              <h3 className="text-xl font-semibold mb-4">向量结果</h3>
               <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
                 {embeddings.map((embedding, idx) => (
                   <div key={idx} className="p-3 border rounded bg-gray-50">
                     <div className="font-medium text-sm text-gray-500 mb-1">
-                      Chunk {embedding.metadata.chunk_id} of {embedding.metadata.total_chunks}
+                      分块 {embedding.metadata.chunk_id} / {embedding.metadata.total_chunks}
                     </div>
                     <div className="text-xs text-gray-400 mb-2">
-                      Document: {embedding.metadata.filename || embedding.metadata.document_name || 'N/A'} | 
-                      Page: {embedding.metadata.page_number || 'N/A'} | 
-                      Page Range: {embedding.metadata.page_range || 'N/A'}
+                      文档: {embedding.metadata.filename || embedding.metadata.document_name || 'N/A'} |
+                      页码: {embedding.metadata.page_number || 'N/A'} |
+                      页码范围: {embedding.metadata.page_range || 'N/A'}
                     </div>
                     <div className="text-xs text-gray-400 mb-2">
-                      Model: {embedding.metadata.embedding_model || 'N/A'} | 
-                      Provider: {embedding.metadata.embedding_provider || 'N/A'} | 
-                      Dimension: {embedding.metadata.vector_dimension || 'N/A'} |
-                      Timestamp: {new Date(embedding.metadata.embedding_timestamp).toLocaleString()}
+                      模型: {embedding.metadata.embedding_model || 'N/A'} |
+                      提供方: {embedding.metadata.embedding_provider || 'N/A'} |
+                      维度: {embedding.metadata.vector_dimension || 'N/A'} |
+                      时间: {new Date(embedding.metadata.embedding_timestamp).toLocaleString()}
                     </div>
                     <div className="text-sm mt-2">
-                      <div className="font-medium text-gray-600">Content:</div>
+                      <div className="font-medium text-gray-600">内容:</div>
                       <div className="text-gray-600">{embedding.metadata.content || 'N/A'}</div>
                     </div>
                   </div>
@@ -226,12 +226,12 @@ const EmbeddingFile = () => {
               </div>
             </div>
           ) : (
-            <RandomImage message="Select a document and generate embeddings or view existing embeddings" />
+            <RandomImage message="选择文档并生成向量，或查看已有向量文件后，这里会显示每个分块的嵌入元信息。" />
           )
         ) : (
           // 嵌入文档管理页面
           <div>
-            <h3 className="text-xl font-semibold mb-4">Embedding Management</h3>
+            <h3 className="text-xl font-semibold mb-4">向量文件管理</h3>
             <div className="space-y-4">
               {embeddedDocs.map((doc) => (
                 <div key={doc.name} className="p-4 border rounded-lg bg-gray-50">
@@ -239,9 +239,9 @@ const EmbeddingFile = () => {
                     <div>
                       <h4 className="font-medium text-lg">{doc.name}</h4>
                       <div className="text-sm text-gray-600 mt-1">
-                        <p>Model: {doc.metadata?.embedding_model}</p>
-                        <p>Provider: {doc.metadata?.embedding_provider}</p>
-                        <p>Created: {new Date(doc.metadata?.embedding_timestamp).toLocaleString()}</p>
+                        <p>模型: {doc.metadata?.embedding_model}</p>
+                        <p>提供方: {doc.metadata?.embedding_provider}</p>
+                        <p>创建时间: {new Date(doc.metadata?.embedding_timestamp).toLocaleString()}</p>
                       </div>
                     </div>
                     <div className="flex space-x-2">
@@ -249,13 +249,13 @@ const EmbeddingFile = () => {
                         onClick={() => handleViewEmbedding(doc.name)}
                         className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
                       >
-                        View
+                        查看
                       </button>
                       <button
                         onClick={() => handleDeleteEmbedding(doc.name)}
                         className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                       >
-                        Delete
+                        删除
                       </button>
                     </div>
                   </div>
@@ -263,7 +263,7 @@ const EmbeddingFile = () => {
               ))}
               {embeddedDocs.length === 0 && (
                 <div className="text-center text-gray-500 py-8">
-                  No embedded documents available
+                  暂无向量文件
                 </div>
               )}
             </div>
@@ -293,7 +293,7 @@ const EmbeddingFile = () => {
                 onChange={(e) => setSelectedDoc(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                <option value="">Choose a document...</option>
+                <option value="">请选择文档...</option>
                 {availableDocs.map(doc => (
                   <option key={doc.id} value={doc.name}>
                     {doc.name} ({doc.type})
@@ -341,7 +341,7 @@ const EmbeddingFile = () => {
 
           {status && (
             <div className={`p-4 rounded-lg ${
-              status.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              status.includes('失败') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
             }`}>
               {status}
             </div>

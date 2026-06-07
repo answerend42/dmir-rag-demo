@@ -46,11 +46,11 @@ const LoadFile = () => {
 
   const handleProcess = async () => {
     if (!file || !loadingMethod) {
-      setStatus('Please select all required options');
+      setStatus('请选择文件和读入工具');
       return;
     }
 
-    setStatus('Loading...');
+    setStatus('正在读入文档...');
     setLoadedContent(null);
 
     try {
@@ -75,13 +75,13 @@ const LoadFile = () => {
 
       const data = await response.json();
       setLoadedContent(data.loaded_content);
-      setStatus('File loaded successfully!');
+      setStatus('文档读入完成');
       fetchDocuments();
       setActiveTab('preview');
 
     } catch (error) {
       console.error('Error:', error);
-      setStatus(`Error: ${error.message}`);
+      setStatus(`读入失败: ${error.message}`);
     }
   };
 
@@ -95,7 +95,7 @@ const LoadFile = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      setStatus('Document deleted successfully');
+      setStatus('文档已删除');
       fetchDocuments();
       if (selectedDoc?.name === docName) {
         setSelectedDoc(null);
@@ -103,13 +103,13 @@ const LoadFile = () => {
       }
     } catch (error) {
       console.error('Error deleting document:', error);
-      setStatus(`Error deleting document: ${error.message}`);
+      setStatus(`删除文档失败: ${error.message}`);
     }
   };
 
   const handleViewDocument = async (doc) => {
     try {
-      setStatus('Loading document...');
+      setStatus('正在加载文档...');
       const response = await fetch(`${apiBaseUrl}/documents/${doc.name}.json`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -121,7 +121,7 @@ const LoadFile = () => {
       setStatus('');
     } catch (error) {
       console.error('Error loading document:', error);
-      setStatus(`Error loading document: ${error.message}`);
+      setStatus(`加载文档失败: ${error.message}`);
     }
   };
 
@@ -158,13 +158,13 @@ const LoadFile = () => {
             <div>
               <h3 className="text-xl font-semibold mb-4">文档内容</h3>
               <div className="mb-4 p-3 border rounded bg-gray-100">
-                <h4 className="font-medium mb-2">Document Information</h4>
+                <h4 className="font-medium mb-2">文档信息</h4>
                 <div className="text-sm text-gray-600">
-                  <p>Pages: {loadedContent.total_pages || 'N/A'}</p>
-                  <p>Chunks: {loadedContent.total_chunks || 'N/A'}</p>
-                  <p>Loading Method: {loadedContent.loading_method || 'N/A'}</p>
-                  <p>Chunking Method: {loadedContent.chunking_method || 'N/A'}</p>
-                  <p>Processing Date: {loadedContent.timestamp ? 
+                  <p>页数: {loadedContent.total_pages || 'N/A'}</p>
+                  <p>分块数: {loadedContent.total_chunks || 'N/A'}</p>
+                  <p>读入方法: {loadedContent.loading_method || 'N/A'}</p>
+                  <p>分块方法: {loadedContent.chunking_method || 'N/A'}</p>
+                  <p>处理时间: {loadedContent.timestamp ?
                     new Date(loadedContent.timestamp).toLocaleString() : 'N/A'}</p>
                 </div>
               </div>
@@ -172,10 +172,10 @@ const LoadFile = () => {
                 {loadedContent.chunks.map((chunk) => (
                   <div key={chunk.metadata.chunk_id} className="p-3 border rounded bg-gray-50">
                     <div className="font-medium text-sm text-gray-500 mb-1">
-                      Chunk {chunk.metadata.chunk_id} (Page {chunk.metadata.page_number})
+                      分块 {chunk.metadata.chunk_id}（第 {chunk.metadata.page_number} 页）
                     </div>
                     <div className="text-xs text-gray-400 mb-2">
-                      Words: {chunk.metadata.word_count} | Page Range: {chunk.metadata.page_range}
+                      词数: {chunk.metadata.word_count} | 页码范围: {chunk.metadata.page_range}
                     </div>
                     <div className="text-sm mt-2">
                       <div className="text-gray-600">{chunk.content}</div>
@@ -185,7 +185,7 @@ const LoadFile = () => {
               </div>
             </div>
           ) : (
-            <RandomImage message="Upload and load a file or select an existing document to see the results here" />
+            <RandomImage message="上传并读入文件，或从文档管理中选择已有文档后，这里会显示预览结果。" />
           )
         ) : (
           // 文档管理页面
@@ -198,11 +198,11 @@ const LoadFile = () => {
                     <div>
                       <h4 className="font-medium text-lg">{doc.name}</h4>
                       <div className="text-sm text-gray-600 mt-1">
-                        <p>Pages: {doc.metadata?.total_pages || 'N/A'}</p>
-                        <p>Chunks: {doc.metadata?.total_chunks || 'N/A'}</p>
-                        <p>Loading Method: {doc.metadata?.loading_method || 'N/A'}</p>
-                        <p>Chunking Method: {doc.metadata?.chunking_method || 'N/A'}</p>
-                        <p>Created: {doc.metadata?.timestamp ? 
+                        <p>页数: {doc.metadata?.total_pages || 'N/A'}</p>
+                        <p>分块数: {doc.metadata?.total_chunks || 'N/A'}</p>
+                        <p>读入方法: {doc.metadata?.loading_method || 'N/A'}</p>
+                        <p>分块方法: {doc.metadata?.chunking_method || 'N/A'}</p>
+                        <p>创建时间: {doc.metadata?.timestamp ?
                           new Date(doc.metadata.timestamp).toLocaleString() : 'N/A'}</p>
                       </div>
                     </div>
@@ -225,7 +225,7 @@ const LoadFile = () => {
               ))}
               {documents.length === 0 && (
                 <div className="text-center text-gray-500 py-8">
-                  No documents available
+                  暂无已导入文档
                 </div>
               )}
             </div>
@@ -402,7 +402,7 @@ const LoadFile = () => {
 
           {status && (
             <div className={`p-4 rounded-lg ${
-              status.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              status.includes('失败') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
             }`}>
               {status}
             </div>

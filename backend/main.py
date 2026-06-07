@@ -1115,7 +1115,8 @@ async def generate_response(
     model_name: str = Body(...),
     search_results: List[Dict] = Body(...),
     load_model: bool = Body(...),
-    api_key: Optional[str] = Body(None)
+    api_key: Optional[str] = Body(None),
+    rag_mode: str = Body("basic_rag"),
 ):
     """! @brief 基于查询和检索上下文生成最终回答。
     @return 生成回答和持久化结果路径。
@@ -1130,7 +1131,8 @@ async def generate_response(
             query=query,
             search_results=search_results,
             load_model=load_model,
-            api_key=api_key
+            api_key=api_key,
+            rag_mode=rag_mode,
         )
         return result
     except Exception as e:
