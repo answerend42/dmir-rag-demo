@@ -19,11 +19,21 @@ const asDisplayValue = (value) => {
  *   status?: {type?: string, message?: string},
  *   datasets?: Array<{key: string, label: string}>,
  *   selectedDataset?: string,
- *   onSelectDataset?: (key: string) => void
+ *   onSelectDataset?: (key: string) => void,
+ *   title?: string,
+ *   description?: string
  * }} props 组件属性。
  * @returns {JSX.Element} 评测 dashboard。
  */
-const EvaluationDashboard = ({ summary, status, datasets = [], selectedDataset, onSelectDataset }) => {
+const EvaluationDashboard = ({
+  summary,
+  status,
+  datasets = [],
+  selectedDataset,
+  onSelectDataset,
+  title = '三模式评测',
+  description = 'RAG 评测摘要。',
+}) => {
   const rows = buildEvaluationRows(summary);
   const showDatasetSwitch = datasets.length > 1 && typeof onSelectDataset === 'function';
 
@@ -31,8 +41,8 @@ const EvaluationDashboard = ({ summary, status, datasets = [], selectedDataset, 
     <section className="rounded-lg border bg-white p-4 shadow-sm">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">三模式评测</h3>
-          <p className="text-xs text-gray-500">课程 QA 与 LLM-Wiki 论文评测摘要。</p>
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          <p className="text-xs text-gray-500">{description}</p>
         </div>
         {showDatasetSwitch && (
           <div className="inline-flex overflow-hidden rounded border border-gray-200 bg-gray-50 text-sm">

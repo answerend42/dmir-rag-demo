@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from pymilvus import connections, Collection, utility
 from services.embedding_service import EmbeddingService
+from services.projection_service import VectorProjectionService
 from utils.config import VectorDBProvider, MILVUS_CONFIG
 import os
 import json
@@ -77,10 +78,20 @@ class SearchService:
                 name = sample.name if hasattr(sample, "name") else str(sample)
                 try:
                     collection = self.client.get_or_create_collection(name)
+                    sample_metadata = {}
+                    try:
+                        sample_metadata = self._get_sample_metadata(collection)
+                    except Exception:
+                        sample_metadata = {}
                     collections.append({
                         "id": name,
                         "name": name,
                         "count": collection.count() if hasattr(collection, "count") else 0,
+                        "dataset_type": sample_metadata.get("dataset_type"),
+                        "source_role": sample_metadata.get("source_role"),
+                        "document_name": sample_metadata.get("document_name") or sample_metadata.get("source"),
+                        "embedding_provider": sample_metadata.get("embedding_provider"),
+                        "embedding_model": sample_metadata.get("embedding_model"),
                     })
                 except Exception as e:
                     logger.error(f"Error getting info for collection {name}: {str(e)}")
@@ -133,6 +144,16 @@ class SearchService:
             raise
 
     @staticmethod
+    def _coerce_vector(vector: Any) -> List[float]:
+        """! @brief 将 Chroma 或 numpy 风格向量转换为普通浮点数组。
+        @param vector 原始向量对象。
+        @return 可 JSON 序列化的浮点数组。
+        """
+        if hasattr(vector, "tolist"):
+            vector = vector.tolist()
+        return [float(value) for value in vector or []]
+
+    @staticmethod
     def _get_sample_metadata(collection) -> Dict[str, Any]:
         """! @brief 从 Chroma 集合读取一条已入库 metadata，用于恢复 embedding 配置。
         @param collection Chroma collection 对象。
@@ -151,13 +172,82 @@ class SearchService:
             raise ValueError("集合 metadata 缺少 embedding_provider 或 embedding_model。")
         return metadata
 
+    def get_collection_embeddings(self, collection_id: str) -> Dict[str, Any]:
+        """! @brief 读取 Chroma collection 中的全部向量，用于数值查看。
+        @param collection_id Chroma collection 名称。
+        @return 包含 collection 元信息和 embedding 条目的响应。
+        """
+        collection = self.client.get_collection(collection_id)
+        raw_data = collection.get(include=["documents", "metadatas", "embeddings"])
+        ids = raw_data.get("ids") or []
+        documents = raw_data.get("documents") or []
+        metadatas = raw_data.get("metadatas") or []
+        raw_embeddings = raw_data.get("embeddings")
+        if raw_embeddings is None:
+            raw_embeddings = []
+        if hasattr(raw_embeddings, "tolist"):
+            raw_embeddings = raw_embeddings.tolist()
+
+        embeddings = []
+        for index, vector in enumerate(raw_embeddings):
+            metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
+            document_text = documents[index] if index < len(documents) else ""
+            chunk_id = metadata.get("chunk_id") or metadata.get("chunk") or (ids[index] if index < len(ids) else index + 1)
+            page_number = metadata.get("page_number") or metadata.get("page") or ""
+            embeddings.append({
+                "embedding": self._coerce_vector(vector),
+                "metadata": {
+                    **metadata,
+                    "document_name": metadata.get("document_name") or metadata.get("source") or collection_id,
+                    "chunk_id": str(chunk_id),
+                    "total_chunks": len(raw_embeddings),
+                    "content": document_text,
+                    "page_number": page_number,
+                    "page_range": metadata.get("page_range", page_number),
+                    "embedding_model": metadata.get("embedding_model", ""),
+                    "embedding_provider": metadata.get("embedding_provider", ""),
+                    "embedding_timestamp": metadata.get("embedding_timestamp", ""),
+                    "vector_dimension": len(vector),
+                },
+            })
+
+        return {
+            "collection_id": collection_id,
+            "count": len(embeddings),
+            "embeddings": embeddings,
+        }
+
+    def get_collection_projection(
+        self,
+        collection_id: str,
+        method: str = "tsne",
+        overlays: Optional[List[Dict[str, Any]]] = None,
+        target_dimensions: int = 3,
+    ) -> Dict[str, Any]:
+        """! @brief 读取 Chroma collection 并在后端计算二维投影。
+        @param collection_id Chroma collection 名称。
+        @param method 投影方法。
+        @param overlays 附加向量，例如查询向量。
+        @param target_dimensions 输出维度，只支持 2 或 3。
+        @return 投影响应。
+        """
+        payload = self.get_collection_embeddings(collection_id)
+        return VectorProjectionService.project_embeddings(
+            payload.get("embeddings", []),
+            method=method,
+            overlays=overlays or [],
+            source_id=collection_id,
+            target_dimensions=target_dimensions,
+        )
+
     async def search(self,
                      query: str,
                      collection_id: str,
                      top_k: int = 3,
                      threshold: float = 0.3,
                      word_count_threshold: int = 0,
-                     save_results: bool = False) -> Dict[str, Any]:
+                     save_results: bool = False,
+                     include_query_embedding: bool = False) -> Dict[str, Any]:
         """! @brief 执行向量搜索，并可选择持久化结果。
         @param query 用户查询文本。
         @param collection_id 向量库中的集合标识。
@@ -165,6 +255,7 @@ class SearchService:
         @param threshold 保留结果的最低相似度分数。
         @param word_count_threshold 为保持 API 兼容而保留的最小字数过滤阈值。
         @param save_results 是否持久化处理后的搜索命中。
+        @param include_query_embedding 是否在响应中回传查询向量，供前端可视化。
         @return 包含处理后结果和可选 saved_filepath 的搜索响应。
 
         执行向量搜索
@@ -232,21 +323,28 @@ class SearchService:
 
             for hit in range(results_count):
                 hit_score=1-results['distances'][0][hit]
-                word_count = int(results['metadatas'][0][hit].get('word_count') or 0)
+                raw_metadata = results['metadatas'][0][hit] or {}
+                word_count = int(raw_metadata.get('word_count') or 0)
                 logger.info(f"Processing hit - Score: {hit_score}, Word Count: {word_count}")
                 if hit_score >= threshold and word_count >= word_count_threshold:
+                    passthrough_metadata = {
+                        key: value
+                        for key, value in raw_metadata.items()
+                        if key not in {"answer_quality", "content"} and value is not None
+                    }
                     processed_results.append({
                         "text": results.get('documents')[0][hit],
                         "score": float(hit_score),
                         "metadata": {
-                            "source": results['metadatas'][0][hit].get('document_name'),
-                            "page": results['metadatas'][0][hit].get('page_number'),
+                            **passthrough_metadata,
+                            "source": raw_metadata.get('document_name'),
+                            "page": raw_metadata.get('page_number'),
                             "chunk": results.get('ids')[0][hit],
-                            "total_chunks": results['metadatas'][0][hit].get('total_chunks'),
-                            "page_range": results['metadatas'][0][hit].get('page_range'),
-                            "embedding_provider": results['metadatas'][0][hit].get('embedding_provider'),
-                            "embedding_model": results['metadatas'][0][hit].get('embedding_model'),
-                            "embedding_timestamp": results['metadatas'][0][hit].get('embedding_timestamp')
+                            "total_chunks": raw_metadata.get('total_chunks'),
+                            "page_range": raw_metadata.get('page_range'),
+                            "embedding_provider": raw_metadata.get('embedding_provider'),
+                            "embedding_model": raw_metadata.get('embedding_model'),
+                            "embedding_timestamp": raw_metadata.get('embedding_timestamp')
                         }
                     })
 
@@ -345,6 +443,20 @@ class SearchService:
             #             })
 
             response_data = {"results": processed_results}
+            if include_query_embedding:
+                response_data["query_embedding"] = self._coerce_vector(query_embedding)
+                response_data["query_embedding_metadata"] = {
+                    "query": query,
+                    "collection_id": collection_id,
+                    "embedding_provider": sample_metadata.get("embedding_provider"),
+                    "embedding_model": sample_metadata.get("embedding_model"),
+                    "vector_dimension": len(query_embedding),
+                }
+                response_data["score_algorithm"] = {
+                    "name": "Chroma HNSW cosine",
+                    "formula": "score = 1 - Chroma distance",
+                    "note": "Chroma distance 越小越相近；前端展示的 score 越大越相关。",
+                }
 
             # 添加详细的保存逻辑日志
             logger.info(f"Preparing to handle save_results (flag: {save_results})")

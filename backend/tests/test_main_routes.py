@@ -53,7 +53,7 @@ def embedded_doc():
     return {
         "filename": "doc.pdf",
         "document_name": "doc",
-        "embedding_model": "fake-model",
+        "embedding_model": "unit-model",
         "embedding_provider": "huggingface",
         "created_at": "2026-01-01T00:00:00",
         "vector_dimension": 3,
@@ -71,9 +71,9 @@ def embedded_doc():
     }
 
 
-class FakeLoadingService:
+class StubLoadingService:
     def __init__(self):
-        self.page_map = [{"page": 1, "text": "loaded text", "metadata": {"source": "fake"}}]
+        self.page_map = [{"page": 1, "text": "loaded text", "metadata": {"source": "unit"}}]
 
     def load_pdf(self, *args, **kwargs):
         return "loaded text"
@@ -101,7 +101,7 @@ class FakeLoadingService:
         return str(path)
 
 
-class FakeChunkingService:
+class StubChunkingService:
     def chunk_text(self, text, method, metadata, page_map=None, chunk_size=1000, chunk_overlap=0):
         return {
             "filename": metadata.get("filename", "doc.pdf"),
@@ -121,7 +121,7 @@ class FakeChunkingService:
         }
 
 
-class FakeParsingService:
+class StubParsingService:
     def parse_pdf(self, text, method, metadata, page_map=None):
         return {
             "metadata": {"filename": metadata["filename"], "total_pages": 1, "parsing_method": method},
@@ -129,7 +129,7 @@ class FakeParsingService:
         }
 
 
-class FakeEmbeddingService:
+class StubEmbeddingService:
     def create_embeddings(self, input_data, config):
         return [
             {
@@ -150,11 +150,11 @@ class FakeEmbeddingService:
 
     def save_embeddings(self, doc_id, embeddings):
         path = Path("02-embedded-docs") / "embedded_from_endpoint.json"
-        write_json(path, {"embeddings": embeddings, "embedding_provider": "huggingface", "embedding_model": "fake", "created_at": "now", "vector_dimension": 3})
+        write_json(path, {"embeddings": embeddings, "embedding_provider": "huggingface", "embedding_model": "unit", "created_at": "now", "vector_dimension": 3})
         return str(path)
 
 
-class FakeSearchService:
+class StubSearchService:
     last_search_kwargs = {}
 
     def get_providers(self):
@@ -164,7 +164,7 @@ class FakeSearchService:
         return [{"id": "collection", "name": "collection", "count": 1}]
 
     async def search(self, **kwargs):
-        FakeSearchService.last_search_kwargs = kwargs
+        StubSearchService.last_search_kwargs = kwargs
         return {
             "results": [
                 {
@@ -181,7 +181,7 @@ class FakeSearchService:
         return str(path)
 
 
-class FakeVectorStoreService:
+class StubVectorStoreService:
     def index_embeddings(self, embedding_file, config):
         return {
             "database": config.provider,
@@ -206,11 +206,11 @@ def test_process_parse_load_save_and_list_routes(client, main_module, monkeypatc
     import services.loading_service as loading_module
     import services.parsing_service as parsing_module
 
-    monkeypatch.setattr(loading_module, "LoadingService", FakeLoadingService)
-    monkeypatch.setattr(chunking_module, "ChunkingService", FakeChunkingService)
-    monkeypatch.setattr(parsing_module, "ParsingService", FakeParsingService)
+    monkeypatch.setattr(loading_module, "LoadingService", StubLoadingService)
+    monkeypatch.setattr(chunking_module, "ChunkingService", StubChunkingService)
+    monkeypatch.setattr(parsing_module, "ParsingService", StubParsingService)
 
-    upload = {"file": ("doc.pdf", b"%PDF fake", "application/pdf")}
+    upload = {"file": ("doc.pdf", b"%PDF unit", "application/pdf")}
     response = client.post("/process", files=upload, data={"loading_method": "pymupdf", "chunking_option": "fixed_size", "chunk_size": "100", "chunk_overlap": "20"})
     assert response.status_code == 200
     assert response.json()["chunks"]["chunking_method"] == "fixed_size"
@@ -224,11 +224,70 @@ def test_process_parse_load_save_and_list_routes(client, main_module, monkeypatc
     assert response.status_code == 200
     assert response.json()["loaded_content"]["filename"] == "doc.pdf"
 
+    response = client.post(
+        "/load-course-knowledge-doc",
+        files={
+            "file": (
+                "course_knowledge.md",
+                "# NLP\n\n自然语言处理研究计算机如何处理自然语言。\n\n# 数据结构\n\n哈希表用于快速查找。".encode("utf-8"),
+                "text/markdown",
+            )
+        },
+    )
+    assert response.status_code == 200
+    knowledge_doc = response.json()["loaded_content"]
+    assert knowledge_doc["dataset_type"] == "course_knowledge"
+    assert knowledge_doc["source_role"] == "external_knowledge"
+    assert knowledge_doc["chunks"][0]["metadata"]["section_title"] == "NLP"
+    assert "answer_quality" not in json.dumps(response.json(), ensure_ascii=False)
+
+    course_qa_payload = {
+        "自然语言处理课程知识问答": [
+            {
+                "id": 1,
+                "question": "什么是自然语言处理？",
+                "answers": [
+                    {"answer_quality": 0, "answer": "处理文字。"},
+                    {"answer_quality": 9, "answer": "自然语言处理研究如何让计算机理解和生成自然语言。"},
+                ],
+            }
+        ]
+    }
+    response = client.post(
+        "/load-course-qa-json",
+        files={"file": ("course_qa.json", json.dumps(course_qa_payload).encode("utf-8"), "application/json")},
+    )
+    assert response.status_code == 200
+    loaded = response.json()["loaded_content"]
+    assert loaded["dataset_type"] == "course_qa"
+    assert loaded["total_chunks"] == 1
+    assert loaded["qa_items"][0]["answers"][0]["answer"] == "处理文字。"
+    assert "answer_quality" not in json.dumps(response.json(), ensure_ascii=False)
+
+    loaded_name = Path(response.json()["filepath"]).name
+    response = client.get("/course-qa/sources")
+    assert response.status_code == 200
+    assert response.json()["sources"][0]["id"] == loaded_name
+    assert response.json()["sources"][0]["question_count"] == 1
+
+    response = client.get(f"/course-qa/sources/{loaded_name}/items")
+    assert response.status_code == 200
+    items_payload = response.json()
+    assert items_payload["items"][0]["question"] == "什么是自然语言处理？"
+    assert items_payload["items"][0]["answers"][1]["answer"].startswith("自然语言处理研究")
+    assert "answer_quality" not in json.dumps(items_payload, ensure_ascii=False)
+
+    response = client.post("/chunk", json={"doc_id": loaded_name, "chunking_option": "course_qa_items"})
+    assert response.status_code == 200
+    assert response.json()["chunking_method"] == "course_qa_items"
+    assert response.json()["chunks"][0]["metadata"]["topic"] == "自然语言处理课程知识问答"
+    assert "answer_quality" not in json.dumps(response.json(), ensure_ascii=False)
+
     response = client.post("/save", json={"docName": "saved_doc", "chunks": [{"content": "x"}], "metadata": {"m": 1}})
     assert response.status_code == 200
     response = client.get("/list-docs")
     assert response.status_code == 200
-    assert response.json()["documents"][0]["name"] == "saved_doc"
+    assert any(document["name"] == "saved_doc" for document in response.json()["documents"])
 
     assert client.post("/save", json={}).status_code == 500
 
@@ -249,9 +308,9 @@ def test_document_chunk_embedding_and_index_routes(client, main_module, monkeypa
     import services.embedding_service as embedding_module
     import services.vector_store_service as vector_module
 
-    monkeypatch.setattr(chunking_module, "ChunkingService", FakeChunkingService)
-    monkeypatch.setattr(embedding_module, "EmbeddingService", FakeEmbeddingService)
-    monkeypatch.setattr(vector_module, "VectorStoreService", FakeVectorStoreService)
+    monkeypatch.setattr(chunking_module, "ChunkingService", StubChunkingService)
+    monkeypatch.setattr(embedding_module, "EmbeddingService", StubEmbeddingService)
+    monkeypatch.setattr(vector_module, "VectorStoreService", StubVectorStoreService)
 
     write_json(Path("01-loaded-docs/loaded.json"), loaded_doc())
     write_json(Path("01-chunked-docs/chunked.json"), chunked_doc())
@@ -269,7 +328,7 @@ def test_document_chunk_embedding_and_index_routes(client, main_module, monkeypa
     assert chunk_response.json()["chunk_overlap"] == 100
     assert client.post("/chunk", json={}).status_code == 400
 
-    embed_response = client.post("/embed", json={"documentId": "chunked.json", "provider": "huggingface", "model": "fake"})
+    embed_response = client.post("/embed", json={"documentId": "chunked.json", "provider": "huggingface", "model": "unit"})
     assert embed_response.status_code == 200
     assert embed_response.json()["status"] == "success"
     assert client.post("/embed", json={}).status_code == 500
@@ -299,20 +358,20 @@ def test_search_collection_evaluation_generation_and_result_routes(client, main_
     import services.search_service as search_module
     import services.vector_store_service as vector_module
 
-    class FakeGenerationService:
+    class StubGenerationService:
         def get_available_models(self):
             return {"deepseek": {"deepseek-v3": "deepseek-v3"}}
 
         def generate(self, **kwargs):
             return {"response": "answer", "saved_filepath": "05-generation-results/out.json"}
 
-    monkeypatch.setattr(search_module, "SearchService", FakeSearchService)
-    monkeypatch.setattr(vector_module, "VectorStoreService", FakeVectorStoreService)
-    monkeypatch.setattr(generation_module, "GenerationService", FakeGenerationService)
+    monkeypatch.setattr(search_module, "SearchService", StubSearchService)
+    monkeypatch.setattr(vector_module, "VectorStoreService", StubVectorStoreService)
+    monkeypatch.setattr(generation_module, "GenerationService", StubGenerationService)
 
     assert client.get("/providers").json()["providers"][0]["id"] == "chroma"
     assert client.get("/collections?provider=chroma").json()["collections"][0]["id"] == "collection"
-    assert client.get("/collections/chroma").json()["collections"] == ["collection"]
+    assert client.get("/collections/chroma").json()["collections"][0]["id"] == "collection"
     assert client.get("/collections/chroma/collection").json()["num_entities"] == 1
     assert client.delete("/collections/chroma/collection").status_code == 200
     assert client.delete("/collections/chroma/fail").status_code == 500
@@ -320,7 +379,7 @@ def test_search_collection_evaluation_generation_and_result_routes(client, main_
     search = client.post("/search", json={"query": "q", "collection_id": "collection", "top_k": 1, "threshold": 0.1, "word_count_threshold": 0, "save_results": True})
     assert search.status_code == 200
     assert search.json()["results"]["results"][0]["text"] == "hit text"
-    assert FakeSearchService.last_search_kwargs["save_results"] is True
+    assert StubSearchService.last_search_kwargs["save_results"] is True
 
     saved = client.post("/save-search", json={"query": "q", "collection_id": "collection", "results": [{"text": "hit"}]})
     assert saved.status_code == 200

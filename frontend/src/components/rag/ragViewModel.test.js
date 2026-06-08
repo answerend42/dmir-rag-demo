@@ -3,9 +3,9 @@ import test from 'node:test';
 
 import {
   buildEvaluationRows,
-  createRagAnswerRequestPayload,
   createSafeRagAnswerViewModel,
   normalizeEvaluationSummary,
+  sanitizeLlmOnlyAnswerMarkdown,
 } from './ragViewModel.js';
 
 test('createSafeRagAnswerViewModel removes answer_quality from nested display data', () => {
@@ -24,9 +24,9 @@ test('createSafeRagAnswerViewModel removes answer_quality from nested display da
       {
         rank: 1,
         score: 0.98,
-        source: 'sample_data/course_qa_public.json',
+        source: 'sample_data/papers/llm_wiki_retrieval_as_reasoning.md',
         text: '命中文本',
-        metadata: { answer_quality: 8, question: '什么是自然语言处理？' },
+        metadata: { answer_quality: 8, question: 'LLM-Wiki 的核心贡献是什么？' },
       },
     ],
     trace: [
@@ -41,7 +41,7 @@ test('createSafeRagAnswerViewModel removes answer_quality from nested display da
   });
 
   assert.equal(JSON.stringify(viewModel).includes('answer_quality'), false);
-  assert.equal(viewModel.retrievedHits[0].metadata.question, '什么是自然语言处理？');
+  assert.equal(viewModel.retrievedHits[0].metadata.question, 'LLM-Wiki 的核心贡献是什么？');
   assert.equal(viewModel.citations[0].metadata.keep, 'visible');
 });
 
@@ -60,59 +60,38 @@ test('buildEvaluationRows keeps stable llm/basic/optimized ordering', () => {
   assert.equal(rows[1].cited, 3);
 });
 
-test('createRagAnswerRequestPayload builds RagRequest compatible body without hidden labels', () => {
-  const payload = createRagAnswerRequestPayload({
-    query: '什么是自然语言处理？',
-    ragMode: 'basic_rag',
-    topK: 3,
-    provider: 'mock',
-    model: 'mock-generator',
-    collectionId: 'course-qa-default',
-    metadata: { answer_quality: 9, max_questions: 5 },
+test('createSafeRagAnswerViewModel suppresses hallucinated LLM-only evidence', () => {
+  const viewModel = createSafeRagAnswerViewModel({
+    answer_markdown: '## 已引用证据\nA6 更合适 [证据1]\n证据1：多个候选答案都提到充电。',
+    citations: [
+      {
+        doc_id: 'hallucinated-doc',
+        chunk_id: 'hallucinated-chunk',
+        quote: '这不是检索证据',
+      },
+    ],
+    retrieved_hits: [
+      {
+        rank: 1,
+        score: 0.9,
+        text: '这也不应在 LLM-only 展示',
+      },
+    ],
+    metadata: { rag_mode: 'llm_only' },
   });
 
-  assert.deepEqual(payload, {
-    query: '什么是自然语言处理？',
-    rag_mode: 'basic_rag',
-    top_k: 3,
-    provider: 'mock',
-    model: 'mock-generator',
-    collection_id: 'course-qa-default',
-    require_citations: true,
-    metadata: { max_questions: 5 },
-  });
-  assert.equal(JSON.stringify(payload).includes('answer_quality'), false);
+  assert.equal(viewModel.citations.length, 0);
+  assert.equal(viewModel.retrievedHits.length, 0);
+  assert.equal(viewModel.answerMarkdown.includes('[证据1]'), false);
+  assert.equal(viewModel.answerMarkdown.includes('## 模型判断依据'), true);
+  assert.equal(viewModel.answerMarkdown.includes('判断依据1：多个候选答案都提到充电。'), true);
 });
 
-test('createRagAnswerRequestPayload falls back to stage A mock defaults', () => {
-  const payload = createRagAnswerRequestPayload({
-    query: '什么是自然语言处理？',
-    ragMode: '',
-    topK: 'bad-value',
-    provider: '',
-    model: '',
-    collectionId: '',
-  });
+test('sanitizeLlmOnlyAnswerMarkdown keeps RAG citations outside LLM-only', () => {
+  const markdown = '回答 [证据1]';
 
-  assert.equal(payload.rag_mode, 'basic_rag');
-  assert.equal(payload.top_k, 3);
-  assert.equal(payload.provider, 'mock');
-  assert.equal(payload.model, 'mock-generator');
-  assert.equal(payload.collection_id, 'course-qa-default');
-});
-
-test('createRagAnswerRequestPayload normalizes topK to integer range', () => {
-  const baseConfig = {
-    query: '什么是自然语言处理？',
-    ragMode: 'basic_rag',
-    provider: 'mock',
-    model: 'mock-generator',
-    collectionId: 'course-qa-default',
-  };
-
-  assert.equal(createRagAnswerRequestPayload({ ...baseConfig, topK: 2.5 }).top_k, 2);
-  assert.equal(createRagAnswerRequestPayload({ ...baseConfig, topK: -4 }).top_k, 1);
-  assert.equal(createRagAnswerRequestPayload({ ...baseConfig, topK: 999 }).top_k, 50);
+  assert.equal(sanitizeLlmOnlyAnswerMarkdown(markdown, 'basic_rag'), markdown);
+  assert.equal(sanitizeLlmOnlyAnswerMarkdown(markdown, 'llm_only'), '回答');
 });
 
 test('normalizeEvaluationSummary accepts remote wrapper payload and removes hidden labels', () => {

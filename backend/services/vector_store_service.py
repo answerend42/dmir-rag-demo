@@ -232,8 +232,8 @@ class VectorStoreService:
         try:
             # 使用 filename 作为 collection 名称前缀
             filename = embeddings_data.get("filename", "")
-            # 如果有 .pdf 后缀，移除它
-            base_name = filename.replace('.pdf', '') if filename else "doc"
+            # 使用文件 stem 作为 collection 前缀，兼容 PDF 和 JSON 数据集。
+            base_name = Path(filename).stem if filename else "doc"
 
             # 将中文字符转换为拼音
             base_name = ''.join(lazy_pinyin(base_name, style=Style.NORMAL))
@@ -386,10 +386,9 @@ class VectorStoreService:
             索引结果信息字典
         """
         try:
-            # 使用 filename 作为 collection 名称前缀
+            # 使用 filename 的 stem 作为 collection 名称前缀，兼容 PDF、JSON、Markdown 和 TXT。
             filename = embeddings_data.get("filename", "")
-            # 如果有 .pdf 后缀，移除它
-            base_name = filename.replace('.pdf', '') if filename else "doc"
+            base_name = Path(filename).stem if filename else "doc"
 
             # 将中文字符转换为拼音
             base_name = ''.join(lazy_pinyin(base_name, style=Style.NORMAL))
@@ -453,25 +452,44 @@ class VectorStoreService:
             entities = []
             entity_num=0
             for emb in embeddings_data["embeddings"]:
+                emb_metadata = emb.get("metadata", {})
+                passthrough_metadata = {}
+                reserved_metadata_keys = {
+                    "content",
+                    "answer_quality",
+                    "total_chunks",
+                    "word_count",
+                    "page_number",
+                    "page_range",
+                    "embedding_provider",
+                    "embedding_model",
+                    "embedding_timestamp",
+                    "vector_dimension",
+                }
+                for key, value in emb_metadata.items():
+                    if key in reserved_metadata_keys or value is None:
+                        continue
+                    passthrough_metadata[key] = value if isinstance(value, (str, int, float, bool)) else str(value)
                 entity = {
+                    **passthrough_metadata,
                     "document_name": embeddings_data.get("filename", ""),  # 使用 filename 而不是 document_name
-                    "total_chunks": int(emb["metadata"].get("total_chunks", 0)),
-                    "word_count": int(emb["metadata"].get("word_count", 0)),
-                    "page_number": str(emb["metadata"].get("page_number", 0)),
-                    "page_range": str(emb["metadata"].get("page_range", "")),
+                    "total_chunks": int(emb_metadata.get("total_chunks", 0)),
+                    "word_count": int(emb_metadata.get("word_count", 0)),
+                    "page_number": str(emb_metadata.get("page_number", 0)),
+                    "page_range": str(emb_metadata.get("page_range", "")),
                     # "chunking_method": str(emb["metadata"].get("chunking_method", "")),
                     "embedding_provider": embeddings_data.get("embedding_provider", ""),  # 从顶层配置获取
                     "embedding_model": embeddings_data.get("embedding_model", ""),  # 从顶层配置获取
-                    "embedding_timestamp": str(emb["metadata"].get("embedding_timestamp", "")),
+                    "embedding_timestamp": str(emb_metadata.get("embedding_timestamp", "")),
                     "index_mode": str(config._get_chroma_index_type()),
                     "vector_dimension": vector_dim,
                 }
                 entities.append(entity)
                 collection.add(
-                    documents=[str(emb["metadata"].get("content", ""))],  # 文本描述
+                    documents=[str(emb_metadata.get("content", ""))],  # 文本描述
                     metadatas=[entity],
                     embeddings=[[float(x) for x in emb.get("embedding", [])]],
-                    ids=[str(int(emb["metadata"].get("chunk_id", 0)))],
+                    ids=[str(int(emb_metadata.get("chunk_id", 0)))],
                 )
                 entity_num+=1
 

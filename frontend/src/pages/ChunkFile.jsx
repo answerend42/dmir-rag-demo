@@ -21,6 +21,8 @@ const ChunkFile = () => {
   const [activeTab, setActiveTab] = useState('chunks');
   const [processingStatus, setProcessingStatus] = useState('');
   const [chunkedDocuments, setChunkedDocuments] = useState([]);
+  const selectedLoadedDoc = loadedDocuments.find((doc) => doc.name === selectedDoc);
+  const isCourseQaDoc = selectedLoadedDoc?.metadata?.dataset_type === 'course_qa';
 
   /** @brief 将重叠长度限制在合法的固定分块范围内。 */
   const clampChunkOverlap = (overlap, size) => {
@@ -44,6 +46,14 @@ const ChunkFile = () => {
   useEffect(() => {
     fetchLoadedDocuments();
   }, []);
+
+  useEffect(() => {
+    if (isCourseQaDoc) {
+      setChunkingOption('course_qa_items');
+    } else if (chunkingOption === 'course_qa_items') {
+      setChunkingOption('by_pages');
+    }
+  }, [chunkingOption, isCourseQaDoc]);
 
   const fetchLoadedDocuments = async () => {
     try {
@@ -81,6 +91,8 @@ const ChunkFile = () => {
               chunking_method: detailData.chunking_method,
               chunk_size: detailData.chunk_size,
               chunk_overlap: detailData.chunk_overlap,
+              dataset_type: detailData.dataset_type,
+              source_format: detailData.source_format,
               timestamp: detailData.timestamp
             };
           } catch (error) {
@@ -124,7 +136,8 @@ const ChunkFile = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorPayload = await response.json().catch(() => ({}));
+        throw new Error(errorPayload.detail || `HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
@@ -134,6 +147,9 @@ const ChunkFile = () => {
         filename: data.filename,
         total_pages: data.total_pages,
         total_chunks: data.total_chunks,
+        dataset_type: data.dataset_type,
+        source_format: data.source_format,
+        source_role: data.source_role,
         loading_method: data.loading_method,
         chunking_method: data.chunking_method,
         chunk_size: data.chunk_size,
@@ -222,6 +238,12 @@ const ChunkFile = () => {
                 <div className="text-sm text-gray-600">
                   <p>文件名: {chunks.filename}</p>
                   <p>总页数: {chunks.total_pages}</p>
+                  {chunks.dataset_type === 'course_qa' && (
+                    <p>数据类型: 课程 QA JSON</p>
+                  )}
+                  {chunks.dataset_type === 'course_knowledge' && (
+                    <p>数据类型: 课程知识文档</p>
+                  )}
                   <p>分块数: {chunks.total_chunks}</p>
                   <p>读入方法: {chunks.loading_method}</p>
                   <p>分块方法: {chunks.chunking_method}</p>
@@ -239,6 +261,8 @@ const ChunkFile = () => {
                     </div>
                     <div className="text-xs text-gray-400 mb-2">
                       页码: {chunk.metadata.page_range} |
+                      {chunk.metadata.topic && ` 主题: ${chunk.metadata.topic} |`}
+                      {chunk.metadata.section_title && ` 章节: ${chunk.metadata.section_title} |`}
                       词数: {chunk.metadata.word_count}
                     </div>
                     <div className="text-sm mt-2">
@@ -263,6 +287,12 @@ const ChunkFile = () => {
                         <h4 className="font-medium text-lg">{doc.name}</h4>
                         <div className="text-sm text-gray-600 mt-1">
                           <p>页数: {doc.total_pages || 'N/A'}</p>
+                          {doc.dataset_type === 'course_qa' && (
+                            <p>数据类型: 课程 QA JSON</p>
+                          )}
+                          {doc.dataset_type === 'course_knowledge' && (
+                            <p>数据类型: 课程知识文档</p>
+                          )}
                           <p>分块数: {doc.total_chunks || 'N/A'}</p>
                           <p>分块方法: {doc.chunking_method || 'N/A'}</p>
                           {doc.chunking_method === 'fixed_size' && (
@@ -320,7 +350,11 @@ const ChunkFile = () => {
                 <option value="">请选择文档...</option>
                 {loadedDocuments.map((doc) => (
                   <option key={doc.name} value={doc.name}>
-                    {doc.name}
+                    {doc.metadata?.dataset_type === 'course_qa'
+                      ? `${doc.name}（课程 QA JSON）`
+                      : doc.metadata?.dataset_type === 'course_knowledge'
+                        ? `${doc.name}（课程知识文档）`
+                        : doc.name}
                   </option>
                 ))}
               </select>
@@ -333,14 +367,20 @@ const ChunkFile = () => {
                 onChange={(e) => setChunkingOption(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                <option value="by_pages">按页分块</option>
-                <option value="fixed_size">固定大小</option>
-                <option value="by_paragraphs">按段落</option>
-                <option value="by_sentences">按句子</option>
+                {isCourseQaDoc ? (
+                  <option value="course_qa_items">课程 QA 条目分块</option>
+                ) : (
+                  <>
+                    <option value="by_pages">按页分块</option>
+                    <option value="fixed_size">固定大小</option>
+                    <option value="by_paragraphs">按段落</option>
+                    <option value="by_sentences">按句子</option>
+                  </>
+                )}
               </select>
             </div>
 
-            {chunkingOption === 'fixed_size' && (
+            {!isCourseQaDoc && chunkingOption === 'fixed_size' && (
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-1">块大小（字符）</label>
                 <input

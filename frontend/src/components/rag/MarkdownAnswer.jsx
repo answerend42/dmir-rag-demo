@@ -8,10 +8,31 @@ import remarkGfm from 'remark-gfm';
 
 const citationPattern = /\[证据(\d+)\]/g;
 
-const withCitationLinks = (markdown = '') =>
-  markdown.replace(citationPattern, '[证据$1](#evidence-$1)');
+const mergeClassName = (...classNames) =>
+  classNames.filter(Boolean).join(' ');
 
-const getCitationTitle = (item = {}, index) => {
+const cleanMarkdownComponentProps = (props = {}) => {
+  const domProps = { ...props };
+  delete domProps.node;
+  return domProps;
+};
+
+const withCitationLinks = (markdown = '', citationTargetCount = 0) => {
+  const safeTargetCount = Number(citationTargetCount);
+  if (!Number.isFinite(safeTargetCount) || safeTargetCount <= 0) {
+    return markdown;
+  }
+
+  return markdown.replace(citationPattern, (match, citationNumber) => {
+    const targetNumber = Number(citationNumber);
+    if (!Number.isInteger(targetNumber) || targetNumber < 1 || targetNumber > safeTargetCount) {
+      return match;
+    }
+    return `[证据${citationNumber}](#evidence-${citationNumber})`;
+  });
+};
+
+const getCitationTitle = (item = {}) => {
   const source = item.source || item.doc_id || '未知来源';
   const page = item.page_number || item.metadata?.page_numbers?.[0];
   return page ? `${source} · p.${page}` : source;
@@ -21,7 +42,7 @@ const buildSourceCards = (citations = [], retrievedHits = []) => {
   const citationCards = citations.map((citation, index) => ({
     id: citation.chunk_id || `citation-${index + 1}`,
     number: index + 1,
-    title: getCitationTitle(citation, index),
+    title: getCitationTitle(citation),
     quote: citation.quote || '',
     href: `#evidence-${index + 1}`,
   }));
@@ -33,7 +54,7 @@ const buildSourceCards = (citations = [], retrievedHits = []) => {
   return retrievedHits.slice(0, 3).map((hit, index) => ({
     id: hit.chunk_id || `hit-${index + 1}`,
     number: index + 1,
-    title: getCitationTitle(hit, index),
+    title: getCitationTitle(hit),
     quote: hit.text || '',
     href: `#evidence-${index + 1}`,
   }));
@@ -114,9 +135,32 @@ const MarkdownAnswer = ({
             h2: ({ children }) => <h2 className="mb-3 mt-6 text-xl font-semibold leading-tight text-slate-950 first:mt-0">{children}</h2>,
             h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold text-slate-900">{children}</h3>,
             p: ({ children }) => <p className="mb-4 text-[15px] leading-7 text-slate-800 last:mb-0">{children}</p>,
-            ul: ({ children }) => <ul className="mb-4 list-disc space-y-2 pl-5 text-[15px] leading-7 text-slate-800">{children}</ul>,
-            ol: ({ children }) => <ol className="mb-4 list-decimal space-y-2 pl-5 text-[15px] leading-7 text-slate-800">{children}</ol>,
-            li: ({ children }) => <li className="pl-1">{children}</li>,
+            ul: (props) => {
+              const { children, className, ...domProps } = cleanMarkdownComponentProps(props);
+              return (
+                <ul
+                  {...domProps}
+                  className={mergeClassName(className, 'mb-4 list-disc space-y-2 pl-5 text-[15px] leading-7 text-slate-800')}
+                >
+                  {children}
+                </ul>
+              );
+            },
+            ol: (props) => {
+              const { children, className, ...domProps } = cleanMarkdownComponentProps(props);
+              return (
+                <ol
+                  {...domProps}
+                  className={mergeClassName(className, 'mb-4 list-decimal space-y-2 pl-5 text-[15px] leading-7 text-slate-800')}
+                >
+                  {children}
+                </ol>
+              );
+            },
+            li: (props) => {
+              const { children, className, ...domProps } = cleanMarkdownComponentProps(props);
+              return <li {...domProps} className={mergeClassName(className, 'pl-1')}>{children}</li>;
+            },
             table: ({ children }) => <div className="my-5 overflow-x-auto rounded-md border border-slate-200"><table className="min-w-full divide-y divide-slate-200 text-sm">{children}</table></div>,
             th: ({ children }) => <th className="bg-slate-50 px-3 py-2 text-left text-xs font-semibold text-slate-600">{children}</th>,
             td: ({ children }) => <td className="border-t border-slate-100 px-3 py-2 text-slate-700">{children}</td>,
@@ -138,7 +182,7 @@ const MarkdownAnswer = ({
             },
           }}
         >
-          {withCitationLinks(answerMarkdown || '暂无回答。')}
+          {withCitationLinks(answerMarkdown || '暂无回答。', sourceCards.length)}
         </ReactMarkdown>
       </article>
     </section>

@@ -18,10 +18,6 @@ from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langchain_core.prompts import ChatPromptTemplate
 import time
 
-# 设置环境变量以启用 Apple Silicon (MPS) 回退到 CPU (当遇到不支持的操作时会自动回退到 CPU 执行)
-# 目前 PyTorch 版本 ≥ 1.13 时，才支持 Apple 的 Metal Performance Shaders (MPS) ，而且暂不支持「多 GPU」，另外，部分训练操作尚未完全实现
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-
 logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
@@ -34,7 +30,9 @@ GROUNDED_SYSTEM_PROMPT = (
 LLM_ONLY_SYSTEM_PROMPT = (
     "你是 RAG 演示系统的纯模型回答器。当前模式不使用检索证据，"
     "请直接基于模型知识用中文 Markdown 回答。若问题依赖特定课程、论文或私有资料细节，"
-    "必须说明无法核验外部证据，不要伪装成已检索。"
+    "必须说明无法核验外部证据，不要伪装成已检索。严禁输出 [证据N]、证据N、"
+    "已引用证据、检索证据、引用来源等 RAG 证据格式；如需解释理由，请使用"
+    "“模型判断依据”或“候选答案文本线索”。"
 )
 
 
@@ -165,7 +163,7 @@ class GenerationService:
             # 构建提示
             # prompt = f"""请基于以下上下文回答问题。如果上下文中没有相关信息，请说明无法回答。
             template = (
-                """请直接基于模型知识回答问题。如果问题依赖特定课程、论文或私有资料细节，请明确说明无法核验外部证据。
+                """请直接基于模型知识回答问题。如果问题依赖特定课程、论文或私有资料细节，请明确说明无法核验外部证据。严禁输出 [证据N]、证据N、已引用证据、检索证据、引用来源等 RAG 证据格式；如需解释理由，请使用“模型判断依据”或“候选答案文本线索”。
                         回话记录：{history}
                         问题：{query}
 
@@ -388,10 +386,11 @@ AI回复：{responseInfo}
         """
         try:
             normalized_rag_mode = rag_mode or "basic_rag"
+            effective_search_results = [] if normalized_rag_mode == "llm_only" else search_results
             # 准备上下文
             context = "\n\n".join([
                 f"[证据{i + 1}]: {result['text']}"
-                for i, result in enumerate(search_results)
+                for i, result in enumerate(effective_search_results)
             ])
 
             ts = time.time()
@@ -420,7 +419,7 @@ AI回复：{responseInfo}
                 "model": model_name,
                 "rag_mode": normalized_rag_mode,
                 "response": response,
-                "context": search_results
+                "context": effective_search_results
             }
 
             # 生成文件名并保存

@@ -5,7 +5,35 @@
  */
 import React, { useState, useEffect } from 'react';
 import RandomImage from '../components/RandomImage';
+import VectorProjectionView from '../components/rag/VectorProjectionView';
 import { apiBaseUrl } from '../config/config';
+
+const VECTOR_PREVIEW_SIZE = 16;
+const EMBEDDING_MODEL_OPTIONS = {
+  qwen_api: [
+    { value: 'text-embedding-v4', label: 'text-embedding-v4（百炼）' },
+  ],
+  huggingface: [
+    { value: 'BAAI/bge-small-zh-v1.5', label: 'bge-small-zh-v1.5（中文）' },
+    { value: 'intfloat/multilingual-e5-small', label: 'multilingual-e5-small（多语言轻量）' },
+  ],
+};
+
+/**
+ * @brief 将向量数值格式化为便于投屏查看的短数组。
+ * @param {number[]} vector 嵌入向量。
+ * @param {number} limit 展示的最大维度数量。
+ * @returns {string} 格式化后的向量片段。
+ */
+const formatVectorValues = (vector = [], limit = vector.length) => {
+  const safeVector = Array.isArray(vector) ? vector : [];
+  const values = safeVector.slice(0, limit).map((value) => {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue.toFixed(6) : String(value);
+  });
+  const suffix = safeVector.length > limit ? ', ...' : '';
+  return `[${values.join(', ')}${suffix}]`;
+};
 
 /**
  * @brief 渲染从已读入或已分块文档创建嵌入的控件。
@@ -13,30 +41,14 @@ import { apiBaseUrl } from '../config/config';
  */
 const EmbeddingFile = () => {
   const [selectedDoc, setSelectedDoc] = useState('');
-  const [embeddingProvider, setEmbeddingProvider] = useState('openai');
-  const [embeddingModel, setEmbeddingModel] = useState('text-embedding-3-large');
+  const [embeddingProvider, setEmbeddingProvider] = useState('qwen_api');
+  const [embeddingModel, setEmbeddingModel] = useState('text-embedding-v4');
   const [status, setStatus] = useState('');
   const [availableDocs, setAvailableDocs] = useState([]);
   const [embeddedDocs, setEmbeddedDocs] = useState([]);
   const [embeddings, setEmbeddings] = useState(null);
   const [activeTab, setActiveTab] = useState('preview'); // 'preview' 或 'documents'
-
-  const modelOptions = {
-    openai: [
-      { value: 'text-embedding-3-large', label: 'text-embedding-3-large' },
-      { value: 'text-embedding-3-small', label: 'text-embedding-3-small' }
-    ],
-    bedrock: [
-      { value: 'cohere.embed-english-v3', label: 'cohere.embed-english-v3' },
-      { value: 'cohere.embed-multilingual-v3', label: 'cohere.embed-multilingual-v3' }
-    ],
-    huggingface: [
-      { value: 'BAAI/bge-small-zh-v1.5', label: 'bge-small-zh-v1.5' },
-      { value: 'sentence-transformers/all-mpnet-base-v2', label: 'all-mpnet-base-v2' },
-      { value: 'sentence-transformers/all-MiniLM-L6-v2', label: 'all-MiniLM-L6-v2' },
-      { value: 'google-bert/bert-base-uncased', label: 'bert-base-uncased' }
-    ]
-  };
+  const [expandedVectorKey, setExpandedVectorKey] = useState(null);
 
   useEffect(() => {
     fetchAvailableDocs();
@@ -44,7 +56,8 @@ const EmbeddingFile = () => {
   }, []);
 
   useEffect(() => {
-    setEmbeddingModel(modelOptions[embeddingProvider][0].value);
+    const providerOptions = EMBEDDING_MODEL_OPTIONS[embeddingProvider] || EMBEDDING_MODEL_OPTIONS.qwen_api;
+    setEmbeddingModel(providerOptions[0].value);
   }, [embeddingProvider]);
 
   const fetchAvailableDocs = async () => {
@@ -123,6 +136,7 @@ const EmbeddingFile = () => {
       
       const data = await response.json();
       setEmbeddings(data.embeddings);
+      setExpandedVectorKey(null);
       setStatus(`向量生成完成，已保存至: ${data.filepath}`);
       fetchEmbeddedDocs(); // 刷新嵌入文档列表
     } catch (error) {
@@ -161,6 +175,7 @@ const EmbeddingFile = () => {
       }
       const data = await response.json();
       setEmbeddings(data.embeddings);
+      setExpandedVectorKey(null);
       setActiveTab('preview');
       setStatus('');
     } catch (error) {
@@ -194,6 +209,16 @@ const EmbeddingFile = () => {
           >
             嵌入文档管理
           </button>
+          <button
+            className={`px-4 py-2 ml-4 ${
+              activeTab === 'projection'
+                ? 'border-b-2 border-blue-500 text-blue-600'
+                : 'text-gray-600'
+            }`}
+            onClick={() => setActiveTab('projection')}
+          >
+            向量投影视图
+          </button>
         </div>
 
         {activeTab === 'preview' ? (
@@ -221,6 +246,34 @@ const EmbeddingFile = () => {
                       <div className="font-medium text-gray-600">内容:</div>
                       <div className="text-gray-600">{embedding.metadata.content || 'N/A'}</div>
                     </div>
+                    <div className="mt-3 rounded border border-gray-200 bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-medium text-gray-700">嵌入向量数值</div>
+                          <div className="text-xs text-gray-500">
+                            维度 {Array.isArray(embedding.embedding) ? embedding.embedding.length : 'N/A'}，默认展示前 {VECTOR_PREVIEW_SIZE} 维
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const vectorKey = `${embedding.metadata.chunk_id}-${idx}`;
+                            setExpandedVectorKey(expandedVectorKey === vectorKey ? null : vectorKey);
+                          }}
+                          className="rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          {expandedVectorKey === `${embedding.metadata.chunk_id}-${idx}` ? '收起完整向量' : '展开完整向量'}
+                        </button>
+                      </div>
+                      <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+                        {formatVectorValues(embedding.embedding, VECTOR_PREVIEW_SIZE)}
+                      </pre>
+                      {expandedVectorKey === `${embedding.metadata.chunk_id}-${idx}` && (
+                        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700">
+                          {formatVectorValues(embedding.embedding)}
+                        </pre>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -228,7 +281,7 @@ const EmbeddingFile = () => {
           ) : (
             <RandomImage message="选择文档并生成向量，或查看已有向量文件后，这里会显示每个分块的嵌入元信息。" />
           )
-        ) : (
+        ) : activeTab === 'documents' ? (
           // 嵌入文档管理页面
           <div>
             <h3 className="text-xl font-semibold mb-4">向量文件管理</h3>
@@ -268,6 +321,8 @@ const EmbeddingFile = () => {
               )}
             </div>
           </div>
+        ) : (
+          <VectorProjectionView title="04 向量投影视图" />
         )}
       </div>
     );
@@ -277,7 +332,7 @@ const EmbeddingFile = () => {
     <div className="p-6">
       <h1 className="text-blue-500 text-3xl font-bold text-center mb-6"> 检索增强生成工具 </h1>
       <hr />
-      <h2 className="text-2xl font-bold mb-6">向量存储</h2>
+      <h2 className="mb-6 text-2xl font-bold">向量存储</h2>
       
       <div className="grid grid-cols-12 gap-6">
         {/* 左侧面板 */}
@@ -309,8 +364,7 @@ const EmbeddingFile = () => {
                 onChange={(e) => setEmbeddingProvider(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                <option value="openai">OpenAI</option>
-                <option value="bedrock">Bedrock</option>
+                <option value="qwen_api">Qwen（百炼）</option>
                 <option value="huggingface">HuggingFace</option>
               </select>
             </div>
@@ -322,7 +376,7 @@ const EmbeddingFile = () => {
                 onChange={(e) => setEmbeddingModel(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                {modelOptions[embeddingProvider].map(model => (
+                {(EMBEDDING_MODEL_OPTIONS[embeddingProvider] || EMBEDDING_MODEL_OPTIONS.qwen_api).map(model => (
                   <option key={model.value} value={model.value}>
                     {model.label}
                   </option>

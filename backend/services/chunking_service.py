@@ -71,10 +71,12 @@ class ChunkingService:
             if method == "by_pages":
                 # 直接使用 page_map 中的每页作为一个 chunk
                 for page_data in page_map:
+                    page_metadata = self._safe_page_metadata(page_data)
                     chunk_metadata = {
+                        **page_metadata,
                         "chunk_id": len(chunks) + 1,
                         "page_number": page_data['page'],
-                        "page_range": str(page_data['page']),
+                        "page_range": page_metadata.get("page_range", str(page_data['page'])),
                         "word_count": len(page_data['text'].split())
                     }
                     chunks.append({
@@ -85,12 +87,14 @@ class ChunkingService:
             elif method == "fixed_size":
                 # 对每页内容进行固定大小分块
                 for page_data in page_map:
+                    page_metadata = self._safe_page_metadata(page_data)
                     page_chunks = self._fixed_size_chunks(page_data['text'], chunk_size, chunk_overlap)
                     for idx, chunk in enumerate(page_chunks, 1):
                         chunk_metadata = {
+                            **page_metadata,
                             "chunk_id": len(chunks) + 1,
                             "page_number": page_data['page'],
-                            "page_range": str(page_data['page']),
+                            "page_range": page_metadata.get("page_range", str(page_data['page'])),
                             "word_count": len(chunk["text"].split()),
                             "chunk_overlap": chunk_overlap,
                         }
@@ -103,12 +107,14 @@ class ChunkingService:
                 # 对每页内容进行段落或句子分块
                 splitter_method = self._paragraph_chunks if method == "by_paragraphs" else self._sentence_chunks
                 for page_data in page_map:
+                    page_metadata = self._safe_page_metadata(page_data)
                     page_chunks = splitter_method(page_data['text'])
                     for chunk in page_chunks:
                         chunk_metadata = {
+                            **page_metadata,
                             "chunk_id": len(chunks) + 1,
                             "page_number": page_data['page'],
-                            "page_range": str(page_data['page']),
+                            "page_range": page_metadata.get("page_range", str(page_data['page'])),
                             "word_count": len(chunk["text"].split())
                         }
                         chunks.append({
@@ -124,6 +130,9 @@ class ChunkingService:
                 "total_chunks": len(chunks),
                 "total_pages": total_pages,
                 "loading_method": metadata.get("loading_method", ""),
+                "dataset_type": metadata.get("dataset_type"),
+                "source_format": metadata.get("source_format"),
+                "source_role": metadata.get("source_role"),
                 "chunking_method": method,
                 "chunk_size": chunk_size if method == "fixed_size" else None,
                 "chunk_overlap": chunk_overlap if method == "fixed_size" else 0,
@@ -136,6 +145,16 @@ class ChunkingService:
         except Exception as e:
             logger.error(f"Error in chunk_text: {str(e)}")
             raise
+
+    @staticmethod
+    def _safe_page_metadata(page_data: dict) -> dict:
+        """! @brief 提取可继承到分块的页面 metadata，并移除禁止字段。"""
+        metadata = page_data.get("metadata") or {}
+        return {
+            key: value
+            for key, value in metadata.items()
+            if key != "answer_quality"
+        }
 
     def _fixed_size_chunks(self, text: str, chunk_size: int, chunk_overlap: int = 0) -> list[dict]:
         """! @brief 将文本按固定大小分块，并可保留相邻块重叠文本。

@@ -7,15 +7,12 @@
 import os
 import json
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends, Response
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from enum import Enum
 from pathlib import Path
 from typing import Any, List, Dict, Optional
-from rag_core.contracts.errors import ContractViolation, EmptyCorpus, ProviderUnavailable, RagCoreError
-from rag_core.contracts.models import RagRequest
-from rag_core.pipeline import CourseQaRagSpine
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -39,75 +36,300 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-## @brief #8 阶段 A 的课程 QA 集成主链路。
-course_qa_rag_spine = CourseQaRagSpine()
+def _safe_storage_stem(filename: str, fallback: str = "course_qa") -> str:
+    """! @brief 从上传文件名生成安全的相对存储名称。"""
+    original_name = Path(filename or fallback).name
+    stem = Path(original_name).stem or fallback
+    cleaned = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in stem)
+    cleaned = "_".join(part for part in cleaned.split("_") if part)
+    return cleaned or fallback
 
-## @brief 前端评测 dashboard 读取的离线结果目录。
-eval_results_dir = Path(__file__).resolve().parents[1] / "eval" / "results"
+
+def _answer_texts_without_quality(answers: Any) -> List[str]:
+    """! @brief 提取候选答案文本，丢弃 answer_quality 等评测标签。"""
+    if not isinstance(answers, list):
+        return []
+    answer_texts = []
+    for answer_item in answers:
+        text = ""
+        if isinstance(answer_item, dict):
+            text = str(answer_item.get("answer") or answer_item.get("text") or "").strip()
+        elif isinstance(answer_item, str):
+            text = answer_item.strip()
+        if text:
+            answer_texts.append(text)
+    return answer_texts
 
 
-def _strip_answer_quality(value: Any) -> Any:
-    """! @brief 递归移除只允许评测脚本读取的 answer_quality 字段。
-    @param value 任意 JSON 可序列化数据。
-    @return 不含隐藏质量档次字段的数据。
-    """
-    if isinstance(value, dict):
-        return {
-            key: _strip_answer_quality(item)
-            for key, item in value.items()
-            if key != "answer_quality"
+def _build_course_qa_loaded_document(payload: Any, filename: str) -> Dict[str, Any]:
+    """! @brief 将课程 QA JSON 规范化为可在 02 继续分块的已导入文档。"""
+    if not isinstance(payload, dict):
+        raise ValueError("课程 QA JSON 顶层必须是对象，键为课程主题。")
+
+    chunks = []
+    qa_items = []
+    topic_count = 0
+    for topic_index, (topic, questions) in enumerate(payload.items(), 1):
+        if not isinstance(questions, list):
+            continue
+        topic_count += 1
+        for question_index, item in enumerate(questions, 1):
+            if not isinstance(item, dict):
+                continue
+            question = str(item.get("question") or "").strip()
+            if not question:
+                continue
+            answer_texts = _answer_texts_without_quality(item.get("answers"))
+            item_id = f"{topic_index}-{question_index}"
+            answer_lines = [
+                f"{index}. {answer_text}"
+                for index, answer_text in enumerate(answer_texts, 1)
+            ]
+            content_parts = [
+                f"课程主题：{topic}",
+                f"问题：{question}",
+            ]
+            if answer_lines:
+                content_parts.extend(["候选答案：", *answer_lines])
+            content = "\n".join(content_parts)
+            chunks.append({
+                "content": content,
+                "metadata": {
+                    "chunk_id": len(chunks) + 1,
+                    "page_number": topic_index,
+                    "page_range": str(topic),
+                    "word_count": len(content.split()),
+                    "dataset_type": "course_qa",
+                    "topic": str(topic),
+                    "qa_id": str(item.get("id") or question_index),
+                    "source_file": Path(filename or "course_qa.json").name,
+                    "answer_count": len(answer_texts),
+                },
+            })
+            qa_items.append({
+                "item_id": item_id,
+                "topic": str(topic),
+                "qa_id": str(item.get("id") or question_index),
+                "question": question,
+                "answers": [
+                    {
+                        "answer_id": f"A{answer_index}",
+                        "answer": answer_text,
+                    }
+                    for answer_index, answer_text in enumerate(answer_texts, 1)
+                ],
+                "answer_count": len(answer_texts),
+            })
+
+    if not chunks:
+        raise ValueError("课程 QA JSON 中没有可导入的问题。")
+
+    timestamp = datetime.now().isoformat()
+    return {
+        "filename": Path(filename or "course_qa.json").name,
+        "document_name": Path(filename or "course_qa.json").name,
+        "dataset_type": "course_qa",
+        "source_format": "json",
+        "total_chunks": len(chunks),
+        "total_pages": topic_count,
+        "loading_method": "course_qa_json",
+        "chunking_method": "structured_json_load",
+        "timestamp": timestamp,
+        "qa_items": qa_items,
+        "chunks": chunks,
+    }
+
+
+def _chunk_course_qa_document(doc_data: Dict[str, Any]) -> Dict[str, Any]:
+    """! @brief 将已导入课程 QA JSON 转成一题一块的标准 chunk 文档。"""
+    source_chunks = doc_data.get("chunks", [])
+    chunks = []
+    for source_chunk in source_chunks:
+        if not isinstance(source_chunk, dict) or not source_chunk.get("content"):
+            continue
+        source_metadata = source_chunk.get("metadata") or {}
+        content = str(source_chunk.get("content", "")).strip()
+        metadata = {
+            **{
+                key: value
+                for key, value in source_metadata.items()
+                if key != "answer_quality"
+            },
+            "chunk_id": len(chunks) + 1,
+            "dataset_type": "course_qa",
+            "page_number": source_metadata.get("page_number", 1),
+            "page_range": source_metadata.get("page_range", source_metadata.get("topic", "course_qa")),
+            "word_count": len(content.split()),
         }
-    if isinstance(value, list):
-        return [_strip_answer_quality(item) for item in value]
-    return value
+        chunks.append({
+            "content": content,
+            "metadata": metadata,
+        })
+
+    if not chunks:
+        raise ValueError("课程 QA 文档没有可分块内容。")
+
+    return {
+        "filename": doc_data.get("filename", "course_qa.json"),
+        "document_name": doc_data.get("document_name", doc_data.get("filename", "course_qa.json")),
+        "dataset_type": "course_qa",
+        "source_format": "json",
+        "total_chunks": len(chunks),
+        "total_pages": doc_data.get("total_pages", 1),
+        "loading_method": doc_data.get("loading_method", "course_qa_json"),
+        "chunking_method": "course_qa_items",
+        "chunk_size": None,
+        "chunk_overlap": 0,
+        "timestamp": datetime.now().isoformat(),
+        "chunks": chunks,
+    }
 
 
-@app.post("/rag/answer")
-async def rag_answer(request: RagRequest):
-    """! @brief 使用统一 RagRequest / RagAnswer contract 执行课程 QA 问答。
-    @details 阶段 A 固定接入 `sample_data/course_qa_public.json` 和 fake/mock pipeline。
-    真实 provider 后续由 #2/#3/#4 接入；本端点先为 #6 前端与 #7 eval 固定主链路。
-    @param request 契约层统一问答请求。
-    @return `RagAnswer.model_dump(mode="json")` 序列化结果。
-    """
-    try:
-        answer = course_qa_rag_spine.answer(request)
-        return answer.model_dump(mode="json")
-    except (ContractViolation, ProviderUnavailable) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except EmptyCorpus as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RagCoreError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+def _parse_course_qa_chunk_content(content: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """! @brief 从旧版课程 QA chunk 文本恢复前端任务条目。"""
+    question = ""
+    answers = []
+    reading_answers = False
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.strip()
+        if line.startswith("问题："):
+            question = line.replace("问题：", "", 1).strip()
+            reading_answers = False
+        elif line == "候选答案：":
+            reading_answers = True
+        elif reading_answers and "." in line:
+            prefix, answer_text = line.split(".", 1)
+            if prefix.strip().isdigit() and answer_text.strip():
+                answers.append({
+                    "answer_id": f"A{len(answers) + 1}",
+                    "answer": answer_text.strip(),
+                })
+
+    return {
+        "item_id": str(metadata.get("item_id") or metadata.get("chunk_id") or metadata.get("qa_id") or len(answers)),
+        "topic": str(metadata.get("topic") or metadata.get("page_range") or "课程 QA"),
+        "qa_id": str(metadata.get("qa_id") or metadata.get("chunk_id") or ""),
+        "question": question,
+        "answers": answers,
+        "answer_count": len(answers),
+    }
 
 
-@app.get("/eval/results/{filename}")
-async def get_eval_result(filename: str):
-    """! @brief 读取 scripts/run_eval.py 生成的离线评测结果。
-    @param filename 结果文件名, 仅允许 json/csv/md。
-    @return JSON 结果或文本结果。
-    @throws HTTPException 文件名非法或结果不存在时抛出。
-    """
-    suffix = Path(filename).suffix.lower()
-    if suffix not in {".json", ".csv", ".md"}:
-        raise HTTPException(status_code=400, detail="仅支持读取 json/csv/md 评测结果")
+def _extract_course_qa_items(doc_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """! @brief 从课程 QA 已导入文档提取无 answer_quality 的题目与候选答案。"""
+    items = []
+    if isinstance(doc_data.get("qa_items"), list):
+        for index, item in enumerate(doc_data.get("qa_items", []), 1):
+            if not isinstance(item, dict):
+                continue
+            answers = []
+            for answer_index, answer_item in enumerate(item.get("answers") or [], 1):
+                answer_text = ""
+                if isinstance(answer_item, dict):
+                    answer_text = str(answer_item.get("answer") or answer_item.get("text") or "").strip()
+                elif isinstance(answer_item, str):
+                    answer_text = answer_item.strip()
+                if answer_text:
+                    answers.append({
+                        "answer_id": f"A{answer_index}",
+                        "answer": answer_text,
+                    })
+            question = str(item.get("question") or "").strip()
+            if question:
+                items.append({
+                    "item_id": str(item.get("item_id") or index),
+                    "topic": str(item.get("topic") or "课程 QA"),
+                    "qa_id": str(item.get("qa_id") or index),
+                    "question": question,
+                    "answers": answers,
+                    "answer_count": len(answers),
+                })
+        return items
 
-    eval_dir = eval_results_dir.resolve()
-    path = (eval_dir / filename).resolve()
-    try:
-        path.relative_to(eval_dir)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="非法评测结果文件名") from exc
-    if path.name.startswith("."):
-        raise HTTPException(status_code=400, detail="非法评测结果文件名")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"评测结果不存在: {filename}")
+    for index, chunk in enumerate(doc_data.get("chunks") or [], 1):
+        if not isinstance(chunk, dict):
+            continue
+        item = _parse_course_qa_chunk_content(chunk.get("content", ""), chunk.get("metadata") or {})
+        if item.get("question"):
+            item["item_id"] = str(item.get("item_id") or index)
+            items.append(item)
+    return items
 
-    if suffix == ".json":
-        with path.open("r", encoding="utf-8") as handle:
-            return _strip_answer_quality(json.load(handle))
-    media_type = "text/csv; charset=utf-8" if suffix == ".csv" else "text/markdown; charset=utf-8"
-    return Response(content=path.read_text(encoding="utf-8"), media_type=media_type)
+
+def _split_text_document_sections(text: str) -> List[Dict[str, str]]:
+    """! @brief 将 Markdown/TXT 课程知识文档按标题切成章节。"""
+    sections = []
+    current_title = "课程知识文档"
+    current_lines = []
+
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if current_lines:
+                content = "\n".join(current_lines).strip()
+                if content:
+                    sections.append({"title": current_title, "content": content})
+            current_title = stripped.lstrip("#").strip() or current_title
+            current_lines = [stripped]
+        else:
+            current_lines.append(line)
+
+    if current_lines:
+        content = "\n".join(current_lines).strip()
+        if content:
+            sections.append({"title": current_title, "content": content})
+
+    if not sections and text.strip():
+        sections.append({"title": "课程知识文档", "content": text.strip()})
+    return sections
+
+
+def _build_course_knowledge_loaded_document(text: str, filename: str) -> Dict[str, Any]:
+    """! @brief 将课程知识 Markdown/TXT 规范化为可继续分块的外部知识文档。"""
+    sections = _split_text_document_sections(text)
+    if not sections:
+        raise ValueError("课程知识文档没有可导入的文本内容。")
+
+    source_name = Path(filename or "course_knowledge.md").name
+    suffix = Path(source_name).suffix.lower()
+    source_format = "markdown" if suffix in {".md", ".markdown"} else "text"
+    chunks = []
+    for section_index, section in enumerate(sections, 1):
+        content = section["content"].strip()
+        if not content:
+            continue
+        chunks.append({
+            "content": content,
+            "metadata": {
+                "chunk_id": len(chunks) + 1,
+                "page_number": section_index,
+                "page_range": section.get("title") or str(section_index),
+                "word_count": len(content.split()),
+                "dataset_type": "course_knowledge",
+                "source_role": "external_knowledge",
+                "source_format": source_format,
+                "section_title": section.get("title") or f"章节 {section_index}",
+                "source_file": source_name,
+            },
+        })
+
+    if not chunks:
+        raise ValueError("课程知识文档没有可导入的有效章节。")
+
+    return {
+        "filename": source_name,
+        "document_name": source_name,
+        "dataset_type": "course_knowledge",
+        "source_role": "external_knowledge",
+        "source_format": source_format,
+        "total_chunks": len(chunks),
+        "total_pages": len(chunks),
+        "loading_method": "course_knowledge_text",
+        "chunking_method": "section_load",
+        "timestamp": datetime.now().isoformat(),
+        "chunks": chunks,
+    }
 
 @app.post("/process")
 async def process_file(
@@ -274,10 +496,14 @@ async def embed_document(data: dict = Body(...)):
             "chunks": doc_data["chunks"],
             "metadata": {
                 "filename": doc_data["filename"],
+                "document_name": doc_data.get("document_name", doc_data["filename"]),
                 "total_chunks": doc_data["total_chunks"],
                 "total_pages": doc_data["total_pages"],
                 "loading_method": doc_data["loading_method"],
-                "chunking_method": doc_data["chunking_method"]
+                "chunking_method": doc_data["chunking_method"],
+                "dataset_type": doc_data.get("dataset_type"),
+                "source_format": doc_data.get("source_format"),
+                "source_role": doc_data.get("source_role"),
             }
         }
         
@@ -415,6 +641,7 @@ async def search(
     threshold: float = Body(0.3),
     word_count_threshold: int = Body(0),
     save_results: bool = Body(False),
+    include_query_embedding: bool = Body(False),
 ):
     """! @brief 执行向量搜索.
     @param query 用户查询文本。
@@ -423,6 +650,7 @@ async def search(
     @param threshold 最低相似度分数。
     @param word_count_threshold 最小词数过滤阈值。
     @param save_results 是否保存检索结果。
+    @param include_query_embedding 是否回传查询向量用于前端可视化。
     @return 包装在 results 对象中的搜索结果。
     """
     try:
@@ -443,6 +671,7 @@ async def search(
             threshold=threshold,
             word_count_threshold=word_count_threshold,
             save_results=save_results,
+            include_query_embedding=include_query_embedding,
         )
         
         # 记录搜索结果
@@ -456,14 +685,70 @@ async def search(
             detail=str(e)
         )
 
+@app.get("/collections/{provider}/{collection_name}/embeddings")
+async def get_collection_embeddings(provider: str, collection_name: str):
+    """! @brief 获取指定 collection 的全部向量，用于数值查看。
+    @param provider 向量数据库提供方，目前只支持 chroma。
+    @param collection_name 要读取的 collection 名称。
+    @return collection 内的向量、文本和元数据。
+    """
+    try:
+        provider_value = provider.strip().lower()
+        if provider_value != "chroma":
+            raise HTTPException(status_code=400, detail="当前向量可视化只支持 Chroma collection")
+
+        from services.search_service import SearchService
+
+        search_service = SearchService()
+        return search_service.get_collection_embeddings(collection_name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting collection embeddings: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/collections/{provider}/{collection_name}/projection")
+async def get_collection_projection(provider: str, collection_name: str, payload: dict = Body(None)):
+    """! @brief 获取指定 collection 的后端二维投影。
+    @param provider 向量数据库提供方，目前只支持 chroma。
+    @param collection_name 要读取的 collection 名称。
+    @param payload 投影方法和附加向量。
+    @return collection 向量二维投影。
+    """
+    try:
+        provider_value = provider.strip().lower()
+        if provider_value != "chroma":
+            raise HTTPException(status_code=400, detail="当前向量投影只支持 Chroma collection")
+
+        from services.search_service import SearchService
+
+        request_data = payload or {}
+        search_service = SearchService()
+        return search_service.get_collection_projection(
+            collection_name,
+            method=request_data.get("method", "tsne"),
+            overlays=request_data.get("overlays", []),
+            target_dimensions=request_data.get(
+                "target_dimensions",
+                request_data.get("dimensions", request_data.get("target_dimension", 3)),
+            ),
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting collection projection: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/collections/{provider}")
 async def get_provider_collections(provider: str):
     """! @brief 获取指定向量数据库提供方的集合列表。"""
     try:
-        from services.vector_store_service import VectorStoreService
+        from services.search_service import SearchService
 
-        vector_store_service = VectorStoreService()
-        collections = vector_store_service.list_collections(provider)
+        search_service = SearchService()
+        collections = search_service.list_collections(provider)
         return {"collections": collections}
     except Exception as e:
         logger.error(f"Error getting collections for provider {provider}: {str(e)}")
@@ -537,6 +822,8 @@ async def get_documents(type: str = Query("all")):
                                     "total_chunks": doc_data.get("total_chunks"),
                                     "loading_method": doc_data.get("loading_method"),
                                     "chunking_method": doc_data.get("chunking_method"),
+                                    "dataset_type": doc_data.get("dataset_type"),
+                                    "source_format": doc_data.get("source_format"),
                                     "timestamp": doc_data.get("timestamp")
                                 }
                             })
@@ -553,7 +840,15 @@ async def get_documents(type: str = Query("all")):
                             documents.append({
                                 "id": filename,
                                 "name": filename,  # 保持原始文件名
-                                "type": "chunked"
+                                "type": "chunked",
+                                "metadata": {
+                                    "total_pages": doc_data.get("total_pages"),
+                                    "total_chunks": doc_data.get("total_chunks"),
+                                    "chunking_method": doc_data.get("chunking_method"),
+                                    "dataset_type": doc_data.get("dataset_type"),
+                                    "source_format": doc_data.get("source_format"),
+                                    "timestamp": doc_data.get("timestamp")
+                                }
                             })
         
         return {"documents": documents}
@@ -628,49 +923,79 @@ async def delete_document(doc_name: str, type: str = Query("loaded")):
         logger.error(f"Error deleting document: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _load_embedded_doc_embeddings(doc_name: str) -> Dict[str, Any]:
+    """! @brief 读取 02-embedded-docs 中的向量条目。"""
+    logger.info(f"Attempting to read document: {doc_name}")
+    file_path = os.path.join("02-embedded-docs", doc_name)
+
+    if not os.path.exists(file_path):
+        logger.error(f"Document not found: {file_path}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Document {doc_name} not found"
+        )
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        doc_data = json.load(f)
+        logger.info(f"Successfully read document: {doc_name}")
+        doc_embeddings = doc_data.get("embeddings", [])
+
+        return {
+            "embeddings": [
+                {
+                    "embedding": embedding["embedding"],
+                    "metadata": {
+                        "document_name": doc_data.get("document_name", doc_name),
+                        "chunk_id": idx + 1,
+                        "total_chunks": len(doc_embeddings),
+                        "content": embedding["metadata"].get("content", ""),
+                        "page_number": embedding["metadata"].get("page_number", ""),
+                        "page_range": embedding["metadata"].get("page_range", ""),
+                        "embedding_model": doc_data.get("embedding_model", ""),
+                        "embedding_provider": doc_data.get("embedding_provider", ""),
+                        "embedding_timestamp": doc_data.get("created_at", ""),
+                        "vector_dimension": doc_data.get("vector_dimension", 0)
+                    }
+                }
+                for idx, embedding in enumerate(doc_embeddings)
+            ]
+        }
+
 @app.get("/embedded-docs/{doc_name}")
 async def get_embedded_doc(doc_name: str):
     """! @brief 获取指定的嵌入文档。"""
     try:
-        logger.info(f"Attempting to read document: {doc_name}")
-        file_path = os.path.join("02-embedded-docs", doc_name)
-        
-        if not os.path.exists(file_path):
-            logger.error(f"Document not found: {file_path}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Document {doc_name} not found"
-            )
-            
-        with open(file_path, 'r', encoding='utf-8') as f:
-            doc_data = json.load(f)
-            logger.info(f"Successfully read document: {doc_name}")
-            
-            return {
-                "embeddings": [
-                    {
-                        "embedding": embedding["embedding"],
-                        "metadata": {
-                            "document_name": doc_data.get("document_name", doc_name),
-                            "chunk_id": idx + 1,
-                            "total_chunks": len(doc_data["embeddings"]),
-                            "content": embedding["metadata"].get("content", ""),
-                            "page_number": embedding["metadata"].get("page_number", ""),
-                            "page_range": embedding["metadata"].get("page_range", ""),
-                            # "chunking_method": embedding["metadata"].get("chunking_method", ""),
-                            "embedding_model": doc_data.get("embedding_model", ""),
-                            "embedding_provider": doc_data.get("embedding_provider", ""),
-                            "embedding_timestamp": doc_data.get("created_at", ""),
-                            "vector_dimension": doc_data.get("vector_dimension", 0)
-                        }
-                    }
-                    for idx, embedding in enumerate(doc_data["embeddings"])
-                ]
-            }
+        return _load_embedded_doc_embeddings(doc_name)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting embedded document {doc_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/embedded-docs/{doc_name}/projection")
+async def get_embedded_doc_projection(doc_name: str, payload: dict = Body(None)):
+    """! @brief 获取指定嵌入文档的后端二维投影。"""
+    try:
+        from services.projection_service import VectorProjectionService
+
+        request_data = payload or {}
+        doc_payload = _load_embedded_doc_embeddings(doc_name)
+        return VectorProjectionService.project_embeddings(
+            doc_payload.get("embeddings", []),
+            method=request_data.get("method", "tsne"),
+            overlays=request_data.get("overlays", []),
+            source_id=doc_name,
+            target_dimensions=request_data.get(
+                "target_dimensions",
+                request_data.get("dimensions", request_data.get("target_dimension", 3)),
+            ),
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting embedded document projection {doc_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/embedded-docs/{doc_name}")
@@ -837,6 +1162,150 @@ async def load_file(
         logger.error(f"Error loading file: {str(e)}")
         raise
 
+@app.post("/load-course-qa-json")
+async def load_course_qa_json(file: UploadFile = File(...)):
+    """! @brief 导入课程 QA JSON，并持久化为可在 02 分块的结构化文档。
+    @param file 上传的课程 QA JSON 文件。
+    @return 已导入的结构化文档和相对文件路径。
+    """
+    try:
+        raw_bytes = await file.read()
+        try:
+            payload = json.loads(raw_bytes.decode("utf-8"))
+        except UnicodeDecodeError:
+            payload = json.loads(raw_bytes.decode("utf-8-sig"))
+
+        document_data = _build_course_qa_loaded_document(payload, file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        storage_name = f"{_safe_storage_stem(file.filename, 'course_qa')}_course_qa_json_{timestamp}.json"
+        os.makedirs("01-loaded-docs", exist_ok=True)
+        filepath = os.path.join("01-loaded-docs", storage_name)
+
+        with open(filepath, "w", encoding="utf-8") as handle:
+            json.dump(document_data, handle, ensure_ascii=False, indent=2)
+
+        return {
+            "loaded_content": document_data,
+            "filepath": filepath,
+        }
+    except ValueError as e:
+        logger.warning(f"课程 QA JSON 导入失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Error loading course QA JSON: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/load-course-knowledge-doc")
+async def load_course_knowledge_doc(file: UploadFile = File(...)):
+    """! @brief 导入课程外部知识 Markdown/TXT，并持久化为可分块文档。
+    @param file 上传的课程知识文档，支持 .md、.markdown 和 .txt。
+    @return 已导入的外部知识文档和相对文件路径。
+    """
+    try:
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in {".md", ".markdown", ".txt"}:
+            raise HTTPException(status_code=400, detail="课程知识文档仅支持 .md、.markdown 或 .txt。")
+
+        raw_bytes = await file.read()
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw_bytes.decode("utf-8-sig")
+
+        document_data = _build_course_knowledge_loaded_document(text, file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        storage_name = f"{_safe_storage_stem(file.filename, 'course_knowledge')}_course_knowledge_{timestamp}.json"
+        os.makedirs("01-loaded-docs", exist_ok=True)
+        filepath = os.path.join("01-loaded-docs", storage_name)
+
+        with open(filepath, "w", encoding="utf-8") as handle:
+            json.dump(document_data, handle, ensure_ascii=False, indent=2)
+
+        return {
+            "loaded_content": document_data,
+            "filepath": filepath,
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"课程知识文档导入失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Error loading course knowledge document: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/course-qa/sources")
+async def list_course_qa_sources():
+    """! @brief 列出前端可复现导入的课程 QA 任务文件。"""
+    try:
+        sources = []
+        loaded_dir = "01-loaded-docs"
+        if not os.path.exists(loaded_dir):
+            return {"sources": []}
+
+        for filename in os.listdir(loaded_dir):
+            if not filename.endswith(".json"):
+                continue
+            file_path = os.path.join(loaded_dir, filename)
+            with open(file_path, "r", encoding="utf-8") as handle:
+                doc_data = json.load(handle)
+            if doc_data.get("dataset_type") != "course_qa":
+                continue
+            qa_items = _extract_course_qa_items(doc_data)
+            sources.append({
+                "id": filename,
+                "name": doc_data.get("filename") or filename,
+                "storage_name": filename,
+                "topic_count": doc_data.get("total_pages", 0),
+                "question_count": len(qa_items),
+                "timestamp": doc_data.get("timestamp"),
+            })
+
+        sources.sort(key=lambda source: source.get("timestamp") or "", reverse=True)
+        return {"sources": sources}
+    except Exception as e:
+        logger.error(f"Error listing course QA sources: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/course-qa/sources/{doc_name}/items")
+async def get_course_qa_items(doc_name: str):
+    """! @brief 读取指定课程 QA 任务文件中的题目与候选答案。
+    @param doc_name 01-loaded-docs 中的课程 QA JSON 存储文件名。
+    @return 无 answer_quality 的题目列表。
+    """
+    try:
+        safe_name = Path(doc_name).name
+        if not safe_name.endswith(".json"):
+            safe_name = f"{safe_name}.json"
+        file_path = os.path.join("01-loaded-docs", safe_name)
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="课程 QA 任务文件不存在。")
+
+        with open(file_path, "r", encoding="utf-8") as handle:
+            doc_data = json.load(handle)
+        if doc_data.get("dataset_type") != "course_qa":
+            raise HTTPException(status_code=400, detail="所选文件不是课程 QA 任务文件。")
+
+        items = _extract_course_qa_items(doc_data)
+        return {
+            "source": {
+                "id": safe_name,
+                "name": doc_data.get("filename") or safe_name,
+                "topic_count": doc_data.get("total_pages", 0),
+                "question_count": len(items),
+                "timestamp": doc_data.get("timestamp"),
+            },
+            "items": items,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading course QA items: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/chunk")
 async def chunk_document(data: dict = Body(...)):
     """! @brief 对已读入文档重新分块。
@@ -862,12 +1331,30 @@ async def chunk_document(data: dict = Body(...)):
             
         with open(file_path, 'r', encoding='utf-8') as f:
             doc_data = json.load(f)
+
+        if doc_data.get("dataset_type") == "course_qa" or doc_data.get("loading_method") == "course_qa_json":
+            if chunking_option != "course_qa_items":
+                raise HTTPException(status_code=400, detail="课程 QA JSON 请选择“课程 QA 条目分块”。")
+            result = _chunk_course_qa_document(doc_data)
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            base_name = _safe_storage_stem(doc_data.get("filename", "course_qa"), "course_qa")
+            output_filename = f"{base_name}_course_qa_items_{timestamp}.json"
+            output_path = os.path.join("01-chunked-docs", output_filename)
+            os.makedirs("01-chunked-docs", exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            return result
             
         # 构建页面映射
         page_map = [
             {
                 'page': chunk['metadata']['page_number'],
-                'text': chunk['content']
+                'text': chunk['content'],
+                'metadata': {
+                    key: value
+                    for key, value in (chunk.get('metadata') or {}).items()
+                    if key != "answer_quality"
+                },
             }
             for chunk in doc_data['chunks']
         ]
@@ -876,7 +1363,10 @@ async def chunk_document(data: dict = Body(...)):
         metadata = {
             "filename": doc_data['filename'],
             "loading_method": doc_data['loading_method'],
-            "total_pages": doc_data['total_pages']
+            "total_pages": doc_data['total_pages'],
+            "dataset_type": doc_data.get("dataset_type"),
+            "source_format": doc_data.get("source_format"),
+            "source_role": doc_data.get("source_role"),
         }
             
         from services.chunking_service import ChunkingService
@@ -893,7 +1383,7 @@ async def chunk_document(data: dict = Body(...)):
         
         # 生成输出文件名
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        base_name = doc_data['filename'].replace('.pdf', '').split('_')[0]
+        base_name = _safe_storage_stem(doc_data.get('filename', 'document'), 'document')
         output_filename = f"{base_name}_{chunking_option}_{timestamp}.json"
         
         output_path = os.path.join("01-chunked-docs", output_filename)

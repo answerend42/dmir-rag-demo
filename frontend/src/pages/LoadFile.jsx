@@ -7,11 +7,42 @@ import React, { useState, useEffect } from 'react';
 import RandomImage from '../components/RandomImage';
 import { apiBaseUrl } from '../config/config';
 
+const IMPORT_MODE_CONFIG = {
+  pdf: {
+    label: 'PDF 文档',
+    inputLabel: '读入 PDF 文件',
+    accept: '.pdf',
+    emptyMessage: '请选择 PDF 文件',
+    loadingMessage: '正在读入文档...',
+    successMessage: '文档读入完成',
+    buttonLabel: '文档读入',
+  },
+  course_qa_json: {
+    label: '课程 QA JSON',
+    inputLabel: '导入课程 QA JSON',
+    accept: '.json,application/json',
+    emptyMessage: '请选择课程 QA JSON 文件',
+    loadingMessage: '正在导入课程 QA JSON...',
+    successMessage: '课程 QA JSON 导入完成，请到 02 使用“课程 QA 条目分块”。',
+    buttonLabel: '导入课程 QA JSON',
+  },
+  course_knowledge: {
+    label: '课程知识文档',
+    inputLabel: '导入课程知识文档',
+    accept: '.md,.markdown,.txt,text/markdown,text/plain',
+    emptyMessage: '请选择课程知识 Markdown/TXT 文件',
+    loadingMessage: '正在导入课程知识文档...',
+    successMessage: '课程知识文档导入完成，请到 02 分块，再到 04/05 建立外部知识索引库。',
+    buttonLabel: '导入课程知识文档',
+  },
+};
+
 /**
  * @brief 渲染 PDF 上传、读入和已读入文档管理控件。
  * @returns {JSX.Element} 文档读入工作流页面。
  */
 const LoadFile = () => {
+  const [importMode, setImportMode] = useState('pdf');
   const [file, setFile] = useState(null);
   const [loadingMethod, setLoadingMethod] = useState('pymupdf');
   const [unstructuredStrategy, setUnstructuredStrategy] = useState('fast');
@@ -45,37 +76,49 @@ const LoadFile = () => {
   };
 
   const handleProcess = async () => {
-    if (!file || !loadingMethod) {
+    const modeConfig = IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf;
+    if (!file) {
+      setStatus(modeConfig.emptyMessage);
+      return;
+    }
+    if (importMode === 'pdf' && !loadingMethod) {
       setStatus('请选择文件和读入工具');
       return;
     }
 
-    setStatus('正在读入文档...');
+    setStatus(modeConfig.loadingMessage);
     setLoadedContent(null);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('loading_method', loadingMethod);
-      
-      if (loadingMethod === 'unstructured') {
-        formData.append('strategy', unstructuredStrategy);
-        formData.append('chunking_strategy', chunkingStrategy);
-        formData.append('chunking_options', JSON.stringify(chunkingOptions));
+
+      let endpoint = `${apiBaseUrl}/load-course-qa-json`;
+      if (importMode === 'course_knowledge') {
+        endpoint = `${apiBaseUrl}/load-course-knowledge-doc`;
+      } else if (importMode === 'pdf') {
+        endpoint = `${apiBaseUrl}/load`;
+        formData.append('loading_method', loadingMethod);
+        if (loadingMethod === 'unstructured') {
+          formData.append('strategy', unstructuredStrategy);
+          formData.append('chunking_strategy', chunkingStrategy);
+          formData.append('chunking_options', JSON.stringify(chunkingOptions));
+        }
       }
 
-      const response = await fetch(`${apiBaseUrl}/load`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorPayload = await response.json().catch(() => ({}));
+        throw new Error(errorPayload.detail || `HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
       setLoadedContent(data.loaded_content);
-      setStatus('文档读入完成');
+      setStatus(modeConfig.successMessage);
       fetchDocuments();
       setActiveTab('preview');
 
@@ -126,6 +169,8 @@ const LoadFile = () => {
   };
 
   const renderRightPanel = () => {
+    const isCourseQaPreview = loadedContent?.dataset_type === 'course_qa';
+    const isCourseKnowledgePreview = loadedContent?.dataset_type === 'course_knowledge';
     return (
       <div className="p-4">
         {/* 标签页切换 */}
@@ -161,6 +206,12 @@ const LoadFile = () => {
                 <h4 className="font-medium mb-2">文档信息</h4>
                 <div className="text-sm text-gray-600">
                   <p>页数: {loadedContent.total_pages || 'N/A'}</p>
+                  {isCourseQaPreview && (
+                    <p>数据类型: 课程 QA JSON</p>
+                  )}
+                  {isCourseKnowledgePreview && (
+                    <p>数据类型: 课程知识文档</p>
+                  )}
                   <p>分块数: {loadedContent.total_chunks || 'N/A'}</p>
                   <p>读入方法: {loadedContent.loading_method || 'N/A'}</p>
                   <p>分块方法: {loadedContent.chunking_method || 'N/A'}</p>
@@ -172,10 +223,15 @@ const LoadFile = () => {
                 {loadedContent.chunks.map((chunk) => (
                   <div key={chunk.metadata.chunk_id} className="p-3 border rounded bg-gray-50">
                     <div className="font-medium text-sm text-gray-500 mb-1">
-                      分块 {chunk.metadata.chunk_id}（第 {chunk.metadata.page_number} 页）
+                      分块 {chunk.metadata.chunk_id}
+                      {isCourseQaPreview
+                        ? `（${chunk.metadata.topic || chunk.metadata.page_range || '课程 QA'}）`
+                        : isCourseKnowledgePreview
+                          ? `（${chunk.metadata.section_title || chunk.metadata.page_range || '课程知识'}）`
+                        : `（第 ${chunk.metadata.page_number} 页）`}
                     </div>
                     <div className="text-xs text-gray-400 mb-2">
-                      词数: {chunk.metadata.word_count} | 页码范围: {chunk.metadata.page_range}
+                      词数: {chunk.metadata.word_count} | 范围: {chunk.metadata.page_range}
                     </div>
                     <div className="text-sm mt-2">
                       <div className="text-gray-600">{chunk.content}</div>
@@ -199,6 +255,12 @@ const LoadFile = () => {
                       <h4 className="font-medium text-lg">{doc.name}</h4>
                       <div className="text-sm text-gray-600 mt-1">
                         <p>页数: {doc.metadata?.total_pages || 'N/A'}</p>
+                        {doc.metadata?.dataset_type === 'course_qa' && (
+                          <p>数据类型: 课程 QA JSON</p>
+                        )}
+                        {doc.metadata?.dataset_type === 'course_knowledge' && (
+                          <p>数据类型: 课程知识文档</p>
+                        )}
                         <p>分块数: {doc.metadata?.total_chunks || 'N/A'}</p>
                         <p>读入方法: {doc.metadata?.loading_method || 'N/A'}</p>
                         <p>分块方法: {doc.metadata?.chunking_method || 'N/A'}</p>
@@ -246,29 +308,58 @@ const LoadFile = () => {
         <div className="col-span-3 space-y-4">
           <div className="p-4 border rounded-lg bg-white shadow-sm">
             <div>
-              <label className="block text-sm font-medium mb-1">读入PDF文件</label>
+              <label className="block text-sm font-medium mb-2">导入类型</label>
+              <div className="grid grid-cols-1 gap-2">
+                {Object.entries(IMPORT_MODE_CONFIG).map(([mode, config]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setImportMode(mode);
+                      setFile(null);
+                      setStatus('');
+                    }}
+                    className={`rounded border px-3 py-2 text-sm font-semibold ${
+                      importMode === mode
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {config.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="mt-4 block text-sm font-medium mb-1">
+                {(IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).inputLabel}
+              </label>
               <input
+                key={importMode}
                 type="file"
-                accept=".pdf"
+                accept={(IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).accept}
                 onChange={(e) => setFile(e.target.files[0])}
                 className="block w-full border rounded px-3 py-2"
               />
             </div>
 
-            <div className="mt-4">
-              <label className="block text-sm font-medium mb-1">读入工具选择</label>
-              <select
-                value={loadingMethod}
-                onChange={(e) => setLoadingMethod(e.target.value)}
-                className="block w-full p-2 border rounded"
-              >
-                <option value="pymupdf">PyMuPDF</option>
-                <option value="pypdf">PyPDF</option>
-                <option value="unstructured">Unstructured</option>
-              </select>
-            </div>
+            {importMode === 'pdf' && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-1">读入工具选择</label>
+                <select
+                  value={loadingMethod}
+                  onChange={(e) => setLoadingMethod(e.target.value)}
+                  className="block w-full p-2 border rounded"
+                >
+                  <option value="pymupdf">PyMuPDF</option>
+                  <option value="pypdf">PyPDF</option>
+                  <option value="unstructured">Unstructured</option>
+                </select>
+              </div>
+            )}
 
-            {loadingMethod === 'unstructured' && (
+            {importMode === 'pdf' && loadingMethod === 'unstructured' && (
               <>
                 <div className="mt-4">
                   <label className="block text-sm font-medium mb-1">Unstructured Strategy</label>
@@ -396,7 +487,7 @@ const LoadFile = () => {
               className="mt-4 w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
               disabled={!file}
             >
-              文档读入
+              {(IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).buttonLabel}
             </button>
           </div>
 

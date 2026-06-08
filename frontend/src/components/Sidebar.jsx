@@ -14,13 +14,13 @@ import ragLogo from '../assets/raglogo.png';
 const Sidebar = () => {
   const location = useLocation();
   const links = [
-    { to: "/load-file", text: "文档导入" },
-    { to: "/chunk-file", text: "知识分块" },
-    { to: "/parse-file", text: "文件解析" },
-    { to: "/embedding", text: "向量存储" },
-    { to: "/indexing", text: "向量库索引" },
-    { to: "/search", text: "相似性检索" },
-    { to: "/generation", text: "响应生成" }
+    { to: "/load-file", text: "文档导入", step: "01" },
+    { to: "/chunk-file", text: "知识分块", step: "02" },
+    { to: "/parse-file", text: "文件解析", step: "03" },
+    { to: "/embedding", text: "向量存储", step: "04" },
+    { to: "/indexing", text: "向量库索引", step: "05" },
+    { to: "/search", text: "相似性检索", step: "06" },
+    { to: "/generation", text: "响应生成", step: "07" }
   ];
 
   return (
@@ -43,7 +43,7 @@ const Sidebar = () => {
             to={link.to}
             className={`sidebar-link ${location.pathname === link.to ? 'sidebar-link-active' : ''}`}
           >
-            <span className="sidebar-step">{String(index + 1).padStart(2, '0')}</span>
+            <span className="sidebar-step">{link.step || String(index + 1).padStart(2, '0')}</span>
             <span>{link.text}</span>
           </Link>
         ))}

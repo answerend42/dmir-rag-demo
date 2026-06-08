@@ -19,7 +19,7 @@ def sample_embeddings():
     return {
         "filename": "Doc Name.pdf",
         "embedding_provider": "huggingface",
-        "embedding_model": "fake-model",
+        "embedding_model": "unit-model",
         "vector_dimension": 3,
         "embeddings": [
             {
@@ -124,26 +124,26 @@ def test_loading_service_pdf_methods_save_and_unstructured(tmp_path, monkeypatch
     service = LoadingService()
     assert "Hello PDF text" in service.load_pdf(str(pdf), "pdfplumber")
 
-    class FakeMetadata:
+    class StubMetadata:
         def __init__(self):
             self.page_number = 3
             self.extra = {"nested": "value"}
             self._known_field_names = ["skip-me"]
             self.not_json = object()
 
-    class FakeElement:
+    class StubElement:
         category = "NarrativeText"
         id = "element-1"
-        metadata = FakeMetadata()
+        metadata = StubMetadata()
 
         def __str__(self):
             return "Unstructured text"
 
-    monkeypatch.setattr(loading_module, "partition_pdf", lambda *args, **kwargs: [FakeElement()])
+    monkeypatch.setattr(loading_module, "partition_pdf", lambda *args, **kwargs: [StubElement()])
     service = LoadingService()
     assert service.load_pdf(str(pdf), "unstructured", strategy="fast", chunking_strategy="basic", chunking_options={}) == "Unstructured text"
     assert service.get_total_pages() == 3
-    assert service.get_page_map()[0]["metadata"]["element_type"] == "FakeElement"
+    assert service.get_page_map()[0]["metadata"]["element_type"] == "StubElement"
     assert "not_json" in service.get_page_map()[0]["metadata"]
 
     service = LoadingService()
@@ -178,7 +178,7 @@ def test_loading_service_pdf_methods_save_and_unstructured(tmp_path, monkeypatch
         service.load_pdf(str(pdf), "bad")
 
 
-class FakeEmbeddingFunction:
+class StubEmbeddingFunction:
     def embed_documents(self, texts):
         return [[float(i), float(i + 1)] for i, _ in enumerate(texts)]
 
@@ -191,7 +191,7 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
     import services.embedding_service as embedding_module
 
     original_create_embedding_function = EmbeddingFactory.create_embedding_function
-    monkeypatch.setattr(EmbeddingFactory, "create_embedding_function", staticmethod(lambda config: FakeEmbeddingFunction()))
+    monkeypatch.setattr(EmbeddingFactory, "create_embedding_function", staticmethod(lambda config: StubEmbeddingFunction()))
     service = EmbeddingService()
     input_data = {
         "chunks": [
@@ -204,9 +204,9 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
     assert len(openai_embeddings) == 2
     assert openai_embeddings[0]["metadata"]["filename"] == "doc.pdf"
 
-    hf_embeddings, _ = service.create_embeddings(input_data, EmbeddingConfig("huggingface", "fake"))
+    hf_embeddings, _ = service.create_embeddings(input_data, EmbeddingConfig("huggingface", "unit"))
     assert hf_embeddings[0]["embedding"] == [0.1, 0.2, 0.3]
-    assert service.create_single_embedding("hello", "huggingface", "fake") == [0.1, 0.2, 0.3]
+    assert service.create_single_embedding("hello", "huggingface", "unit") == [0.1, 0.2, 0.3]
 
     qwen_embeddings, _ = service.create_embeddings(input_data, EmbeddingConfig("qwen_api", "text-embedding-v2"))
     assert qwen_embeddings[1]["embedding"] == [1.0, 2.0]
@@ -218,7 +218,7 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
     assert saved_data["embedding_provider"] == "huggingface"
     write_config = Path("02-embedded-docs") / "manual_config.json"
     write_config.write_text(
-        json.dumps({"filename": "doc", "embedding_provider": "huggingface", "embedding_model": "fake"}),
+        json.dumps({"filename": "doc", "embedding_provider": "huggingface", "embedding_model": "unit"}),
         encoding="utf-8",
     )
 
@@ -227,19 +227,19 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
     with pytest.raises(ValueError):
         service.get_document_embedding_config("missing_collection")
 
-    class FakeOpenAIEmbeddings:
+    class StubOpenAIEmbeddings:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    class FakeBedrockEmbeddings:
+    class StubBedrockEmbeddings:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    class FakeHFEmbeddings:
+    class StubHFEmbeddings:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    class FakeQwenApiEmbedder:
+    class StubQwenApiEmbedder:
         def __init__(self, model):
             self.model = model
 
@@ -249,17 +249,17 @@ def test_embedding_service_create_save_factory_and_config(tmp_path, monkeypatch)
         def embed_query(self, text):
             return SimpleNamespace(vector=[0.4, 0.5, 0.6])
 
-    monkeypatch.setattr(embedding_module, "OpenAIEmbeddings", FakeOpenAIEmbeddings)
-    monkeypatch.setattr(embedding_module, "BedrockEmbeddings", FakeBedrockEmbeddings)
-    monkeypatch.setattr(embedding_module, "HuggingFaceEmbeddings", FakeHFEmbeddings)
-    monkeypatch.setattr(embedding_module, "QwenApiEmbedder", FakeQwenApiEmbedder)
+    monkeypatch.setattr(embedding_module, "OpenAIEmbeddings", StubOpenAIEmbeddings)
+    monkeypatch.setattr(embedding_module, "BedrockEmbeddings", StubBedrockEmbeddings)
+    monkeypatch.setattr(embedding_module, "HuggingFaceEmbeddings", StubHFEmbeddings)
+    monkeypatch.setattr(embedding_module, "QwenApiEmbedder", StubQwenApiEmbedder)
     monkeypatch.setattr(embedding_module.boto3, "client", lambda **kwargs: "bedrock-client")
     monkeypatch.setattr(embedding_module, "get_huggingface_model_path", lambda name: f"local/{name}")
     monkeypatch.setattr(EmbeddingFactory, "create_embedding_function", staticmethod(original_create_embedding_function))
 
-    assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("openai", "m")), FakeOpenAIEmbeddings)
-    assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("bedrock", "m")), FakeBedrockEmbeddings)
-    assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("huggingface", "m")), FakeHFEmbeddings)
+    assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("openai", "m")), StubOpenAIEmbeddings)
+    assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("bedrock", "m")), StubBedrockEmbeddings)
+    assert isinstance(EmbeddingFactory.create_embedding_function(EmbeddingConfig("huggingface", "m")), StubHFEmbeddings)
     qwen_function = EmbeddingFactory.create_embedding_function(EmbeddingConfig("qwen_api", "m"))
     assert qwen_function.embed_documents(["a", "b"]) == [[0.0, 1.0], [1.0, 2.0]]
     assert qwen_function.embed_query("query") == [0.4, 0.5, 0.6]
@@ -280,7 +280,7 @@ def test_model_utils_local_and_remote(tmp_path, monkeypatch):
     assert get_huggingface_model_path("org/model") == str(local)
 
 
-class FakeChromaCollection:
+class StubChromaCollection:
     def __init__(self, name="collection"):
         self.name = name
         self.added = []
@@ -305,7 +305,7 @@ class FakeChromaCollection:
                     "total_chunks": 2,
                     "page_range": "1",
                     "embedding_provider": "huggingface",
-                    "embedding_model": "fake",
+                    "embedding_model": "unit",
                     "embedding_timestamp": "now",
                     "word_count": 10,
                 },
@@ -314,12 +314,12 @@ class FakeChromaCollection:
         }
 
     def get(self, **kwargs):
-        return {"metadatas": [{"embedding_provider": "huggingface", "embedding_model": "fake"}]}
+        return {"metadatas": [{"embedding_provider": "huggingface", "embedding_model": "unit"}]}
 
 
-class FakeChromaClient:
+class StubChromaClient:
     def __init__(self):
-        self.collection = FakeChromaCollection("collection")
+        self.collection = StubChromaCollection("collection")
         self.deleted = []
 
     def list_collections(self):
@@ -350,8 +350,8 @@ def test_vector_store_chroma_helpers_and_milvus_paths(tmp_path, monkeypatch):
     assert config._get_milvus_index_type("flat") == "FLAT"
     assert config._get_milvus_index_params("hnsw")["M"] == 16
 
-    fake_client = FakeChromaClient()
-    monkeypatch.setattr(vector_module.chromadb, "PersistentClient", lambda path: fake_client)
+    unit_client = StubChromaClient()
+    monkeypatch.setattr(vector_module.chromadb, "PersistentClient", lambda path: unit_client)
     monkeypatch.setattr(
         vector_module.embedding_functions,
         "SentenceTransformerEmbeddingFunction",
@@ -370,10 +370,10 @@ def test_vector_store_chroma_helpers_and_milvus_paths(tmp_path, monkeypatch):
 
     chroma_result = service.index_embeddings(str(data_path), VectorDBConfig("chroma", "hnsw"))
     assert chroma_result["index_size"] == 1
-    assert fake_client.collection.added
-    assert "embedding_function" not in fake_client.collection.created_kwargs
-    assert "vector" not in fake_client.collection.added[0]["metadatas"][0]
-    assert fake_client.collection.added[0]["metadatas"][0]["vector_dimension"] == 3
+    assert unit_client.collection.added
+    assert "embedding_function" not in unit_client.collection.created_kwargs
+    assert "vector" not in unit_client.collection.added[0]["metadatas"][0]
+    assert unit_client.collection.added[0]["metadatas"][0]["vector_dimension"] == 3
 
     assert service.list_collections(VectorDBProvider.CHROMA)[0].name == "collection"
     assert service.delete_collection(VectorDBProvider.CHROMA, "collection") is True
@@ -382,7 +382,7 @@ def test_vector_store_chroma_helpers_and_milvus_paths(tmp_path, monkeypatch):
     assert service.delete_collection("unknown", "collection") is False
     assert service.get_collection_info("unknown", "collection") == {}
 
-    class FakeMilvusClient:
+    class StubMilvusClient:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
@@ -401,25 +401,25 @@ def test_vector_store_chroma_helpers_and_milvus_paths(tmp_path, monkeypatch):
         def load_collection(self, **kwargs):
             return None
 
-    class FakeFieldSchema:
+    class StubFieldSchema:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    class FakeCollectionSchema:
+    class StubCollectionSchema:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    fake_connections = SimpleNamespace(connect=lambda **kwargs: None, disconnect=lambda *args, **kwargs: None)
-    fake_utility = SimpleNamespace(list_collections=lambda: ["milvus_collection"], drop_collection=lambda name: None)
-    fake_collection = lambda name: SimpleNamespace(num_entities=7, schema=SimpleNamespace(to_dict=lambda: {"name": name}))
-    fake_datatype = SimpleNamespace(INT64="INT64", VARCHAR="VARCHAR", FLOAT_VECTOR="FLOAT_VECTOR")
-    monkeypatch.setattr(vector_module, "MilvusClient", FakeMilvusClient)
-    monkeypatch.setattr(vector_module, "FieldSchema", FakeFieldSchema)
-    monkeypatch.setattr(vector_module, "CollectionSchema", FakeCollectionSchema)
-    monkeypatch.setattr(vector_module, "DataType", fake_datatype)
-    monkeypatch.setattr(vector_module, "connections", fake_connections)
-    monkeypatch.setattr(vector_module, "utility", fake_utility)
-    monkeypatch.setattr(vector_module, "Collection", fake_collection)
+    unit_connections = SimpleNamespace(connect=lambda **kwargs: None, disconnect=lambda *args, **kwargs: None)
+    unit_utility = SimpleNamespace(list_collections=lambda: ["milvus_collection"], drop_collection=lambda name: None)
+    unit_collection = lambda name: SimpleNamespace(num_entities=7, schema=SimpleNamespace(to_dict=lambda: {"name": name}))
+    unit_datatype = SimpleNamespace(INT64="INT64", VARCHAR="VARCHAR", FLOAT_VECTOR="FLOAT_VECTOR")
+    monkeypatch.setattr(vector_module, "MilvusClient", StubMilvusClient)
+    monkeypatch.setattr(vector_module, "FieldSchema", StubFieldSchema)
+    monkeypatch.setattr(vector_module, "CollectionSchema", StubCollectionSchema)
+    monkeypatch.setattr(vector_module, "DataType", unit_datatype)
+    monkeypatch.setattr(vector_module, "connections", unit_connections)
+    monkeypatch.setattr(vector_module, "utility", unit_utility)
+    monkeypatch.setattr(vector_module, "Collection", unit_collection)
 
     milvus_result = service.index_embeddings(str(data_path), VectorDBConfig("milvus", "flat"))
     assert milvus_result["index_size"] == 1
@@ -433,20 +433,31 @@ async def test_search_service_collections_search_and_save(tmp_path, monkeypatch)
     import services.search_service as search_module
     from services.search_service import SearchService
 
-    fake_client = FakeChromaClient()
+    unit_client = StubChromaClient()
 
-    class FakeEmbeddingService:
+    class StubEmbeddingService:
         def create_single_embedding(self, text, provider, model):
             return [0.1, 0.2, 0.3]
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(search_module.chromadb, "PersistentClient", lambda path: fake_client)
-    monkeypatch.setattr(search_module, "EmbeddingService", FakeEmbeddingService)
+    monkeypatch.setattr(search_module.chromadb, "PersistentClient", lambda path: unit_client)
+    monkeypatch.setattr(search_module, "EmbeddingService", StubEmbeddingService)
     monkeypatch.setattr(search_module.connections, "disconnect", lambda *args, **kwargs: None)
 
     service = SearchService()
     assert service.get_providers() == [{"id": "chroma", "name": "chroma"}]
-    assert service.list_collections() == [{"id": "collection", "name": "collection", "count": 1}]
+    assert service.list_collections() == [
+        {
+            "id": "collection",
+            "name": "collection",
+            "count": 1,
+            "dataset_type": None,
+            "source_role": None,
+            "document_name": None,
+            "embedding_provider": "huggingface",
+            "embedding_model": "unit",
+        }
+    ]
 
     saved_path = service.save_search_results("query", "collection", [{"text": "x"}])
     assert Path(saved_path).exists()
@@ -470,7 +481,7 @@ async def test_search_service_collections_search_and_save(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError):
         service.list_collections()
 
-    service.client = fake_client
+    service.client = unit_client
     monkeypatch.setattr(service, "save_search_results", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("save failed")))
     with pytest.raises(RuntimeError):
         await service.search("query", "collection", top_k=2, threshold=0.5, save_results=True)
@@ -499,7 +510,7 @@ def test_generation_service_all_providers_and_save(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         GenerationService()._generate_with_deepseek("deepseek-v3", "q", "ctx", api_key=None)
 
-    class FakeOpenAI:
+    class StubOpenAI:
         def __init__(self, **kwargs):
             pass
 
@@ -510,23 +521,23 @@ def test_generation_service_all_providers_and_save(tmp_path, monkeypatch):
                     message = SimpleNamespace(content="final", reasoning_content="reason")
                     return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
-    monkeypatch.setattr(generation_module, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(generation_module, "OpenAI", StubOpenAI)
     assert GenerationService()._generate_with_deepseek("deepseek-v3", "q", "ctx", api_key="key") == "final"
     assert "【思维过程】" in GenerationService()._generate_with_deepseek("deepseek-r1", "q", "ctx", api_key="key")
     assert GenerationService()._generate_with_deepseek("deepseek-r1", "q", "ctx", api_key="key", show_reasoning=False) == "final"
 
-    class FakeDelta:
+    class StubDelta:
         def __init__(self, reasoning_content=None, content=None):
             self.reasoning_content = reasoning_content
             self.content = content
 
     chunks = [
-        SimpleNamespace(choices=[SimpleNamespace(delta=FakeDelta(reasoning_content="think"))]),
-        SimpleNamespace(choices=[SimpleNamespace(delta=FakeDelta(content="answer"))]),
+        SimpleNamespace(choices=[SimpleNamespace(delta=StubDelta(reasoning_content="think"))]),
+        SimpleNamespace(choices=[SimpleNamespace(delta=StubDelta(content="answer"))]),
         SimpleNamespace(choices=[], usage={"tokens": 1}),
     ]
 
-    class FakeAliyunOpenAI:
+    class StubAliyunOpenAI:
         def __init__(self, **kwargs):
             pass
 
@@ -536,37 +547,37 @@ def test_generation_service_all_providers_and_save(tmp_path, monkeypatch):
                 def create(**kwargs):
                     return chunks
 
-    monkeypatch.setattr(generation_module, "OpenAI", FakeAliyunOpenAI)
+    monkeypatch.setattr(generation_module, "OpenAI", StubAliyunOpenAI)
     assert GenerationService()._generate_with_aliyun("qwen-turbo", "q", "ctx") == "answer"
 
-    class FakeChatModel:
+    class StubChatModel:
         def invoke(self, prompt):
             return SimpleNamespace(content="<think>plan</think>reply")
 
     hf = GenerationService()
-    hf.model = FakeChatModel()
+    hf.model = StubChatModel()
     response = hf._generate_with_huggingface("Qwen-Qwen3-1.7B", "q", "ctx", load_model=False)
     assert "AI思考过程：plan" in response
     assert "AI回复：reply" in response
-    monkeypatch.setattr(hf, "_load_huggingface_model", lambda model_name: (FakeChatModel(), "tokenizer"))
+    monkeypatch.setattr(hf, "_load_huggingface_model", lambda model_name: (StubChatModel(), "tokenizer"))
     assert "AI回复：reply" in hf._generate_with_huggingface("Qwen-Qwen3-1.7B", "q2", "ctx", load_model=True)
 
-    class FakeCausalLM:
+    class StubCausalLM:
         @staticmethod
         def from_pretrained(model_name, **kwargs):
             return {"model_name": model_name, **kwargs}
 
-    class FakeTokenizer:
+    class StubTokenizer:
         eos_token_id = 0
 
         @staticmethod
         def from_pretrained(model_name, **kwargs):
-            return FakeTokenizer()
+            return StubTokenizer()
 
     monkeypatch.setattr(generation_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(generation_module, "get_huggingface_model_path", lambda name: f"local/{name}")
-    monkeypatch.setattr(generation_module, "AutoModelForCausalLM", FakeCausalLM)
-    monkeypatch.setattr(generation_module, "AutoTokenizer", FakeTokenizer)
+    monkeypatch.setattr(generation_module, "AutoModelForCausalLM", StubCausalLM)
+    monkeypatch.setattr(generation_module, "AutoTokenizer", StubTokenizer)
     monkeypatch.setattr(generation_module, "pipeline", lambda *args, **kwargs: {"args": args, "kwargs": kwargs})
     monkeypatch.setattr(generation_module, "HuggingFacePipeline", lambda pipeline: SimpleNamespace(pipeline=pipeline))
     monkeypatch.setattr(generation_module, "ChatHuggingFace", lambda llm: SimpleNamespace(llm=llm))

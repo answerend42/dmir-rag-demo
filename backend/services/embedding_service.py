@@ -86,12 +86,18 @@ class EmbeddingService:
                 
                 # 将结果与原始chunk数据组合
                 for chunk, embedding_vector in zip(batch, embedding_vectors):
+                    chunk_metadata = {
+                        key: value
+                        for key, value in (chunk.get("metadata") or {}).items()
+                        if key != "answer_quality"
+                    }
                     metadata = {
-                        "chunk_id": chunk["metadata"]["chunk_id"],
-                        "page_number": chunk["metadata"]["page_number"],
-                        "page_range": chunk["metadata"]["page_range"],
+                        **chunk_metadata,
+                        "chunk_id": chunk_metadata.get("chunk_id"),
+                        "page_number": chunk_metadata.get("page_number", ""),
+                        "page_range": chunk_metadata.get("page_range", ""),
                         "content": chunk["content"],
-                        "word_count": chunk["metadata"]["word_count"],
+                        "word_count": chunk_metadata.get("word_count", 0),
                         # "chunking_method": input_data.get("chunking_method", "loaded"),
                         "total_chunks": len(chunks),
                         "embedding_provider": provider_value,
@@ -110,12 +116,18 @@ class EmbeddingService:
             # 对其他提供商保持原有的逐个处理逻辑
             for chunk in chunks:
                 embedding_vector = embedding_function.embed_query(chunk["content"])
+                chunk_metadata = {
+                    key: value
+                    for key, value in (chunk.get("metadata") or {}).items()
+                    if key != "answer_quality"
+                }
                 metadata = {
-                    "chunk_id": chunk["metadata"]["chunk_id"],
-                    "page_number": chunk["metadata"]["page_number"],
-                    "page_range": chunk["metadata"]["page_range"],
+                    **chunk_metadata,
+                    "chunk_id": chunk_metadata.get("chunk_id"),
+                    "page_number": chunk_metadata.get("page_number", ""),
+                    "page_range": chunk_metadata.get("page_range", ""),
                     "content": chunk["content"],
-                    "word_count": chunk["metadata"]["word_count"],
+                    "word_count": chunk_metadata.get("word_count", 0),
                     # "chunking_method": input_data.get("chunking_method", "loaded"),
                     "total_chunks": len(chunks),
                     "embedding_provider": provider_value,
@@ -157,18 +169,23 @@ class EmbeddingService:
         provider = first_embedding["metadata"]["embedding_provider"]
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         
-        # 保持原始文件名（包括扩展名）
-        base_name = doc_name.split('_')[0]
-        if not base_name.endswith('.pdf'):
-            base_name += '.pdf'
+        # 优先使用文档元数据中的原始文件名，避免把 JSON 数据集误标成 PDF。
+        source_filename = first_embedding.get("metadata", {}).get("filename") or doc_name
+        base_name = os.path.basename(str(source_filename))
+        base_root, base_ext = os.path.splitext(base_name)
+        if not base_root:
+            base_root = os.path.splitext(os.path.basename(str(doc_name)))[0] or "document"
+        if not base_ext:
+            base_ext = ".json" if "json" in str(doc_name).lower() else ".pdf"
+        source_display_name = f"{base_root}{base_ext}"
         
-        # 构建新的文件名：基础名称_provider_时间戳
-        filename = f"{base_name.replace('.pdf', '')}_{provider}_{timestamp}.json"
+        # 构建新的文件名：基础名称_provider_时间戳。
+        filename = f"{base_root}_{provider}_{timestamp}.json"
         filepath = os.path.join("02-embedded-docs", filename)
         
         # 从第一个embedding中获取配置信息
         config_info = {
-            "filename": base_name,  # 使用完整的文件名（包括.pdf）
+            "filename": source_display_name,
             "chunked_doc_name": doc_name,  # 添加 chunked_doc_name
             "created_at": datetime.now().isoformat(),
             "embedding_provider": provider,

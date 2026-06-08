@@ -176,7 +176,7 @@ class ParsingService:
         parsed_content = []
         for page in page_map:
             # 可使用 tabula-py 或类似库提取表格
-            # 当前示例仅模拟表格检测
+            # 当前实现使用启发式表格检测
             content = page["text"]
             if '|' in content or '\t' in content:
                 parsed_content.append({
