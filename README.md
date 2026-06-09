@@ -65,6 +65,19 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 注意：如果后端是从 `backend/` 目录启动，`HF_MODEL_PATH` 应写成 `../hf_model_path`；如果从仓库根目录运行脚本，则写成 `./hf_model_path`。
 
+MinerU VLM 精准解析相关：
+
+```shell
+export MINERU_API_TOKEN="..."
+export MINERU_API_BASE_URL=https://mineru.net/api/v4
+export MINERU_MODEL_VERSION=vlm
+export MINERU_LANGUAGE=ch
+export MINERU_ENABLE_TABLE=true
+export MINERU_ENABLE_FORMULA=true
+```
+
+03 文件解析的 `MinerU VLM 精准解析` 入口调用真实 MinerU 精准解析 API。后端默认使用 `https://mineru.net/api/v4`，按官方流程申请上传 URL、上传文件、轮询批量解析结果、下载结果 zip 并读取其中的 `full.md`。`MINERU_API_TOKEN` 只能放在 `.env` 或环境变量中，不要把 token 写进仓库、README 示例值或聊天记录。
+
 ## 快速验证
 
 ```shell
@@ -106,7 +119,7 @@ curl -sS "http://127.0.0.1:8001/collections/chroma/file_2605.25480v2_huggingface
 推荐现场演示顺序：
 
 1. **文档导入**：`/load-file`
-   - `PDF 文档`：上传 PDF 并持久化到后端文档目录。
+   - `文档 / PDF`：上传 PDF 并持久化到后端文档目录；也可选择 `MinerU VLM 精准解析`，将 MinerU 返回的 `full.md` 写入本地 `01-loaded-docs/`，继续进入 02/04/05/07。
    - `课程 QA JSON`：上传课程 QA JSON，前端调用真实 `/load-course-qa-json`，后端将结构化题目转换为可继续分块的已导入文档。
    - `课程知识文档`：上传 Markdown/TXT 外部知识材料，前端调用真实 `/load-course-knowledge-doc`，后端按标题切成课程知识章节。
    - 课程 QA JSON 导入时不会把 `answer_quality` 写入导入结果、前端预览、索引或生成链路。
@@ -118,7 +131,9 @@ curl -sS "http://127.0.0.1:8001/collections/chroma/file_2605.25480v2_huggingface
 3. **文件解析**：`/parse-file`
    - 这是可选的临时解析预览页。
    - 它不会复用 01 已导入文档，也不会持久化解析结果，所以页面会要求重新上传 PDF。
-   - 正常 RAG 演示可以跳过这一页。
+   - 可选择 PyMuPDF、PyPDF、Unstructured、PDF Plumber 或 MinerU VLM 精准解析。
+   - MinerU VLM 精准解析会调用真实外部解析接口，将返回 zip 中的 `full.md` 归一化为页面可展示的章节。
+   - 正常 RAG 演示可以跳过这一页；如果需要让 MinerU 结果进入 RAG，应在 01 文档导入中选择 `MinerU VLM 精准解析`。
 
 4. **向量存储**：`/embedding`
    - 从已导入或已分块文档中选择文档生成 embedding。
@@ -208,9 +223,19 @@ docs/
 
 ## 常见问题
 
+### 汇报问答材料在哪里？
+
+项目展示相关问题、老师要求完成情况、推荐演示路径和 MinerU 改进说明集中在 `PROJECT_SHOWCASE_NOTES.md`。
+
 ### 03 文件解析为什么还要重新上传？
 
 因为 `/parse-file` 是临时解析预览页，后端 `/parse` 接口会读取本次上传的 PDF，解析完删除临时文件，不会读取 `/load-file` 已经保存的导入文档。完整 RAG 流程不依赖这一页。
+
+### MinerU API 怎么使用？
+
+03 文件解析选择 `MinerU VLM 精准解析` 后上传 PDF、图片、Docx、PPTx、Xls 或 Xlsx 文件即可。后端会读取 `MINERU_API_TOKEN`，创建 MinerU 精准解析签名上传任务、上传文件、轮询批量解析状态，并把结果 zip 中的 Markdown 展示到页面。这个入口是真实 API；如果 token、网络、页数、文件大小或 MinerU 服务状态不满足要求，页面会显示真实错误，不会回退到 mock。
+
+如果希望 MinerU 解析结果进入后续 RAG 链路，请在 01 文档导入中选择 `文档 / PDF -> MinerU VLM 精准解析`。这个入口会把 `full.md` 持久化为本地导入文档，再走 02 分块、04 向量存储、05 索引和 07 响应生成。
 
 ### HF bge-small-zh-v1.5 生成向量为什么会 Broken pipe？
 

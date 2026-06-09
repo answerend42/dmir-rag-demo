@@ -9,8 +9,8 @@ import { apiBaseUrl } from '../config/config';
 
 const IMPORT_MODE_CONFIG = {
   pdf: {
-    label: 'PDF 文档',
-    inputLabel: '读入 PDF 文件',
+    label: '文档 / PDF',
+    inputLabel: '导入 PDF 文件',
     accept: '.pdf',
     emptyMessage: '请选择 PDF 文件',
     loadingMessage: '正在读入文档...',
@@ -37,6 +37,8 @@ const IMPORT_MODE_CONFIG = {
   },
 };
 
+const MINERU_ACCEPT_TYPES = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.jp2,.webp,.gif,.bmp';
+
 /**
  * @brief 渲染 PDF 上传、读入和已读入文档管理控件。
  * @returns {JSX.Element} 文档读入工作流页面。
@@ -60,6 +62,7 @@ const LoadFile = () => {
   const [documents, setDocuments] = useState([]);
   const [activeTab, setActiveTab] = useState('preview'); // 'preview' 或 'documents'
   const [selectedDoc, setSelectedDoc] = useState(null);
+  const isMinerULoading = importMode === 'pdf' && loadingMethod === 'mineru_vlm';
 
   useEffect(() => {
     fetchDocuments();
@@ -86,7 +89,7 @@ const LoadFile = () => {
       return;
     }
 
-    setStatus(modeConfig.loadingMessage);
+    setStatus(isMinerULoading ? '正在调用 MinerU VLM 精准解析并导入文档...' : modeConfig.loadingMessage);
     setLoadedContent(null);
 
     try {
@@ -118,7 +121,7 @@ const LoadFile = () => {
 
       const data = await response.json();
       setLoadedContent(data.loaded_content);
-      setStatus(modeConfig.successMessage);
+      setStatus(isMinerULoading ? 'MinerU VLM 精准解析导入完成，请到 02 分块或直接到 04 生成向量。' : modeConfig.successMessage);
       fetchDocuments();
       setActiveTab('preview');
 
@@ -214,6 +217,29 @@ const LoadFile = () => {
                   )}
                   <p>分块数: {loadedContent.total_chunks || 'N/A'}</p>
                   <p>读入方法: {loadedContent.loading_method || 'N/A'}</p>
+                  {loadedContent.source_format && (
+                    <p>来源格式: {loadedContent.source_format}</p>
+                  )}
+                  {loadedContent.mineru_batch_id && (
+                    <p>MinerU 批次: {loadedContent.mineru_batch_id}</p>
+                  )}
+                  {loadedContent.mineru_model_version && (
+                    <p>MinerU 模型: {loadedContent.mineru_model_version}</p>
+                  )}
+                  {loadedContent.mineru_full_zip_url && (
+                    <p>
+                      MinerU 结果:
+                      {' '}
+                      <a
+                        href={loadedContent.mineru_full_zip_url}
+                        className="text-blue-600 underline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        查看 zip
+                      </a>
+                    </p>
+                  )}
                   <p>分块方法: {loadedContent.chunking_method || 'N/A'}</p>
                   <p>处理时间: {loadedContent.timestamp ?
                     new Date(loadedContent.timestamp).toLocaleString() : 'N/A'}</p>
@@ -261,9 +287,15 @@ const LoadFile = () => {
                         {doc.metadata?.dataset_type === 'course_knowledge' && (
                           <p>数据类型: 课程知识文档</p>
                         )}
-                        <p>分块数: {doc.metadata?.total_chunks || 'N/A'}</p>
-                        <p>读入方法: {doc.metadata?.loading_method || 'N/A'}</p>
-                        <p>分块方法: {doc.metadata?.chunking_method || 'N/A'}</p>
+	                        <p>分块数: {doc.metadata?.total_chunks || 'N/A'}</p>
+	                        <p>读入方法: {doc.metadata?.loading_method || 'N/A'}</p>
+	                        {doc.metadata?.source_format && (
+	                          <p>来源格式: {doc.metadata.source_format}</p>
+	                        )}
+	                        {doc.metadata?.mineru_model_version && (
+	                          <p>MinerU 模型: {doc.metadata.mineru_model_version}</p>
+	                        )}
+	                        <p>分块方法: {doc.metadata?.chunking_method || 'N/A'}</p>
                         <p>创建时间: {doc.metadata?.timestamp ?
                           new Date(doc.metadata.timestamp).toLocaleString() : 'N/A'}</p>
                       </div>
@@ -332,38 +364,56 @@ const LoadFile = () => {
             </div>
 
             <div>
-              <label className="mt-4 block text-sm font-medium mb-1">
-                {(IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).inputLabel}
-              </label>
-              <input
-                key={importMode}
-                type="file"
-                accept={(IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).accept}
-                onChange={(e) => setFile(e.target.files[0])}
+	              <label htmlFor="load-file-input" className="mt-4 block text-sm font-medium mb-1">
+	                {isMinerULoading
+	                  ? '导入 MinerU 支持的文档'
+	                  : (IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).inputLabel}
+	              </label>
+	              <input
+	                id="load-file-input"
+	                name="load-file"
+	                aria-label={isMinerULoading ? '导入 MinerU 支持的文档' : (IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).inputLabel}
+	                key={`${importMode}-${loadingMethod}`}
+	                type="file"
+	                accept={isMinerULoading
+	                  ? MINERU_ACCEPT_TYPES
+	                  : (IMPORT_MODE_CONFIG[importMode] || IMPORT_MODE_CONFIG.pdf).accept}
+	                onChange={(e) => setFile(e.target.files[0])}
                 className="block w-full border rounded px-3 py-2"
               />
             </div>
 
             {importMode === 'pdf' && (
               <div className="mt-4">
-                <label className="block text-sm font-medium mb-1">读入工具选择</label>
-                <select
-                  value={loadingMethod}
-                  onChange={(e) => setLoadingMethod(e.target.value)}
-                  className="block w-full p-2 border rounded"
-                >
-                  <option value="pymupdf">PyMuPDF</option>
-                  <option value="pypdf">PyPDF</option>
-                  <option value="unstructured">Unstructured</option>
-                </select>
-              </div>
+	                <label htmlFor="load-method-select" className="block text-sm font-medium mb-1">读入工具选择</label>
+	                <select
+	                  id="load-method-select"
+	                  name="loading_method"
+	                  aria-label="读入工具选择"
+	                  value={loadingMethod}
+	                  onChange={(e) => {
+	                    setLoadingMethod(e.target.value);
+	                    setFile(null);
+	                    setStatus('');
+	                  }}
+	                  className="block w-full p-2 border rounded"
+	                >
+	                  <option value="pymupdf">PyMuPDF</option>
+	                  <option value="pypdf">PyPDF</option>
+	                  <option value="unstructured">Unstructured</option>
+	                  <option value="pdfplumber">PDF Plumber</option>
+	                  <option value="mineru_vlm">MinerU VLM 精准解析</option>
+	                </select>
+	              </div>
             )}
 
             {importMode === 'pdf' && loadingMethod === 'unstructured' && (
               <>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium mb-1">Unstructured Strategy</label>
-                  <select
+	                  <label htmlFor="unstructured-strategy-select" className="block text-sm font-medium mb-1">Unstructured Strategy</label>
+	                  <select
+	                    id="unstructured-strategy-select"
+	                    name="unstructured_strategy"
                     value={unstructuredStrategy}
                     onChange={(e) => setUnstructuredStrategy(e.target.value)}
                     className="block w-full p-2 border rounded"
@@ -375,8 +425,10 @@ const LoadFile = () => {
                 </div>
 
                 <div className="mt-4">
-                  <label className="block text-sm font-medium mb-1">Chunking Strategy</label>
-                  <select
+	                  <label htmlFor="unstructured-chunking-select" className="block text-sm font-medium mb-1">Chunking Strategy</label>
+	                  <select
+	                    id="unstructured-chunking-select"
+	                    name="chunking_strategy"
                     value={chunkingStrategy}
                     onChange={(e) => setChunkingStrategy(e.target.value)}
                     className="block w-full p-2 border rounded"
@@ -389,8 +441,10 @@ const LoadFile = () => {
                 {chunkingStrategy === 'basic' && (
                   <div className="mt-4 space-y-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Max Characters</label>
-                      <input
+	                      <label htmlFor="max-characters-input" className="block text-sm font-medium mb-1">Max Characters</label>
+	                      <input
+	                        id="max-characters-input"
+	                        name="maxCharacters"
                         type="number"
                         value={chunkingOptions.maxCharacters}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -401,8 +455,10 @@ const LoadFile = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">New After N Chars</label>
-                      <input
+	                      <label htmlFor="new-after-n-chars-input" className="block text-sm font-medium mb-1">New After N Chars</label>
+	                      <input
+	                        id="new-after-n-chars-input"
+	                        name="newAfterNChars"
                         type="number"
                         value={chunkingOptions.newAfterNChars}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -413,8 +469,10 @@ const LoadFile = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Combine Text Under N Chars</label>
-                      <input
+	                      <label htmlFor="combine-text-under-input" className="block text-sm font-medium mb-1">Combine Text Under N Chars</label>
+	                      <input
+	                        id="combine-text-under-input"
+	                        name="combineTextUnderNChars"
                         type="number"
                         value={chunkingOptions.combineTextUnderNChars}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -425,8 +483,10 @@ const LoadFile = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Overlap</label>
-                      <input
+	                      <label htmlFor="overlap-input" className="block text-sm font-medium mb-1">Overlap</label>
+	                      <input
+	                        id="overlap-input"
+	                        name="overlap"
                         type="number"
                         value={chunkingOptions.overlap}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -437,7 +497,9 @@ const LoadFile = () => {
                       />
                     </div>
                     <div className="flex items-center">
-                      <input
+	                      <input
+	                        id="overlap-all-input"
+	                        name="overlapAll"
                         type="checkbox"
                         checked={chunkingOptions.overlapAll}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -446,7 +508,7 @@ const LoadFile = () => {
                         }))}
                         className="mr-2"
                       />
-                      <label className="text-sm font-medium">Overlap All</label>
+	                      <label htmlFor="overlap-all-input" className="text-sm font-medium">Overlap All</label>
                     </div>
                   </div>
                 )}
@@ -454,8 +516,10 @@ const LoadFile = () => {
                 {chunkingStrategy === 'by_title' && (
                   <div className="mt-4 space-y-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Combine Text Under N Chars</label>
-                      <input
+	                      <label htmlFor="by-title-combine-text-under-input" className="block text-sm font-medium mb-1">Combine Text Under N Chars</label>
+	                      <input
+	                        id="by-title-combine-text-under-input"
+	                        name="byTitleCombineTextUnderNChars"
                         type="number"
                         value={chunkingOptions.combineTextUnderNChars}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -466,7 +530,9 @@ const LoadFile = () => {
                       />
                     </div>
                     <div className="flex items-center">
-                      <input
+	                      <input
+	                        id="multi-page-sections-input"
+	                        name="multiPageSections"
                         type="checkbox"
                         checked={chunkingOptions.multiPageSections}
                         onChange={(e) => setChunkingOptions(prev => ({
@@ -475,7 +541,7 @@ const LoadFile = () => {
                         }))}
                         className="mr-2"
                       />
-                      <label className="text-sm font-medium">Multi-page Sections</label>
+	                      <label htmlFor="multi-page-sections-input" className="text-sm font-medium">Multi-page Sections</label>
                     </div>
                   </div>
                 )}

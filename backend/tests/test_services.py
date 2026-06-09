@@ -1,6 +1,8 @@
 import asyncio
+import io
 import json
 import os
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -96,6 +98,157 @@ def test_parsing_service_methods_and_errors():
         service.parse_pdf("", "bad", metadata, page_map)
     with pytest.raises(ValueError):
         service.parse_pdf("", "all_text", metadata, None)
+
+
+def test_mineru_agent_parser_signed_upload_and_markdown(monkeypatch, tmp_path):
+    from services.mineru_service import MinerUAgentParser
+    import services.mineru_service as mineru_module
+
+    class StubResponse:
+        def __init__(self, status_code=200, json_data=None, text=""):
+            self.status_code = status_code
+            self._json_data = json_data
+            self.text = text
+
+        def json(self):
+            return self._json_data
+
+    upload_file = tmp_path / "doc.pdf"
+    upload_file.write_bytes(b"%PDF unit")
+    poll_state = {"count": 0}
+
+    def fake_post(url, json, timeout):
+        assert url == "https://unit-mineru/api/v1/agent/parse/file"
+        assert json["file_name"] == "doc.pdf"
+        return StubResponse(
+            json_data={
+                "code": 0,
+                "data": {"task_id": "task-1", "file_url": "https://upload-url"},
+            }
+        )
+
+    def fake_put(url, data, timeout):
+        assert url == "https://upload-url"
+        assert data.read() == b"%PDF unit"
+        return StubResponse(status_code=200)
+
+    def fake_get(url, timeout):
+        if url == "https://unit-mineru/api/v1/agent/parse/task-1":
+            poll_state["count"] += 1
+            if poll_state["count"] == 1:
+                return StubResponse(json_data={"code": 0, "data": {"state": "running"}})
+            return StubResponse(
+                json_data={
+                    "code": 0,
+                    "data": {"state": "done", "markdown_url": "https://markdown-url"},
+                }
+            )
+        if url == "https://markdown-url":
+            return StubResponse(text="# 标题\n\n解析内容")
+        raise AssertionError(url)
+
+    monkeypatch.setattr(mineru_module.requests, "post", fake_post)
+    monkeypatch.setattr(mineru_module.requests, "put", fake_put)
+    monkeypatch.setattr(mineru_module.requests, "get", fake_get)
+
+    parser = MinerUAgentParser(
+        base_url="https://unit-mineru/api/v1/agent",
+        poll_timeout_seconds=5,
+        poll_interval_seconds=0,
+    )
+    result = parser.parse_file(str(upload_file), "doc.pdf")
+
+    assert result["metadata"]["source"] == "MinerU Agent API"
+    assert result["metadata"]["mineru_task_id"] == "task-1"
+    assert result["content"][0]["title"] == "标题"
+    assert result["content"][0]["content"] == "解析内容"
+
+
+def test_mineru_precision_parser_vlm_batch_upload_and_zip(monkeypatch, tmp_path):
+    from services.mineru_service import MinerUPrecisionParser
+    import services.mineru_service as mineru_module
+
+    class StubResponse:
+        def __init__(self, status_code=200, json_data=None, text="", content=b""):
+            self.status_code = status_code
+            self._json_data = json_data
+            self.text = text
+            self.content = content
+
+        def json(self):
+            return self._json_data
+
+    upload_file = tmp_path / "doc.pdf"
+    upload_file.write_bytes(b"%PDF unit")
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as archive:
+        archive.writestr("full.md", "# VLM 标题\n\n精准解析内容")
+    poll_state = {"count": 0}
+
+    monkeypatch.setenv("MINERU_API_TOKEN", "unit-token")
+    monkeypatch.setenv("MINERU_MODEL_VERSION", "vlm")
+
+    def fake_post(url, headers, json, timeout):
+        assert url == "https://unit-mineru/api/v4/file-urls/batch"
+        assert headers["Authorization"] == "Bearer unit-token"
+        assert json["model_version"] == "vlm"
+        assert json["files"][0]["name"] == "doc.pdf"
+        return StubResponse(
+            json_data={
+                "code": 0,
+                "data": {"batch_id": "batch-1", "file_urls": ["https://upload-url"]},
+            }
+        )
+
+    def fake_put(url, data, timeout):
+        assert url == "https://upload-url"
+        assert data.read() == b"%PDF unit"
+        return StubResponse(status_code=200)
+
+    def fake_get(url, **kwargs):
+        if url == "https://unit-mineru/api/v4/extract-results/batch/batch-1":
+            poll_state["count"] += 1
+            if poll_state["count"] == 1:
+                return StubResponse(
+                    json_data={
+                        "code": 0,
+                        "data": {"extract_result": [{"state": "running"}]},
+                    }
+                )
+            return StubResponse(
+                json_data={
+                    "code": 0,
+                    "data": {
+                        "extract_result": [
+                            {
+                                "state": "done",
+                                "full_zip_url": "https://zip-url",
+                                "extract_progress": {"total_pages": 2},
+                            }
+                        ]
+                    },
+                }
+            )
+        if url == "https://zip-url":
+            return StubResponse(content=zip_buffer.getvalue())
+        raise AssertionError(url)
+
+    monkeypatch.setattr(mineru_module.requests, "post", fake_post)
+    monkeypatch.setattr(mineru_module.requests, "put", fake_put)
+    monkeypatch.setattr(mineru_module.requests, "get", fake_get)
+
+    parser = MinerUPrecisionParser(
+        base_url="https://unit-mineru/api/v4",
+        poll_timeout_seconds=5,
+        poll_interval_seconds=0,
+    )
+    result = parser.parse_file(str(upload_file), "doc.pdf")
+
+    assert result["metadata"]["source"] == "MinerU VLM 精准解析 API"
+    assert result["metadata"]["mineru_batch_id"] == "batch-1"
+    assert result["metadata"]["mineru_model_version"] == "vlm"
+    assert result["content"][0]["title"] == "VLM 标题"
+    assert result["content"][0]["content"] == "精准解析内容"
 
 
 def make_pdf(path: Path):

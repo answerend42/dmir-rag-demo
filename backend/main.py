@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 import logging
 from enum import Enum
 from pathlib import Path
@@ -328,6 +329,66 @@ def _build_course_knowledge_loaded_document(text: str, filename: str) -> Dict[st
         "loading_method": "course_knowledge_text",
         "chunking_method": "section_load",
         "timestamp": datetime.now().isoformat(),
+        "chunks": chunks,
+    }
+
+
+def _build_mineru_loaded_document(parsed_content: Dict[str, Any], filename: str) -> Dict[str, Any]:
+    """! @brief 将 MinerU 精准解析结果规范化为可继续分块的导入文档。"""
+    source_name = Path(filename or "mineru_document").name
+    metadata = parsed_content.get("metadata") or {}
+    chunks = []
+
+    for section_index, item in enumerate(parsed_content.get("content") or [], 1):
+        title = str(item.get("title") or "").strip()
+        body = str(item.get("content") or "").strip()
+        content_parts = []
+        if title:
+            content_parts.append(f"# {title}")
+        if body:
+            content_parts.append(body)
+        chunk_text = "\n\n".join(content_parts).strip()
+        if not chunk_text:
+            continue
+
+        page_number = item.get("page") if isinstance(item.get("page"), int) else section_index
+        chunks.append({
+            "content": chunk_text,
+            "metadata": {
+                "chunk_id": len(chunks) + 1,
+                "page_number": page_number,
+                "page_range": title or str(page_number),
+                "word_count": len(chunk_text.split()),
+                "source_file": source_name,
+                "source_format": "mineru_vlm_markdown",
+                "section_title": title or f"章节 {section_index}",
+                "parsing_method": "mineru_vlm",
+                "mineru_batch_id": metadata.get("mineru_batch_id"),
+                "mineru_model_version": metadata.get("mineru_model_version"),
+            },
+        })
+
+    if not chunks:
+        raise ValueError("MinerU 精准解析没有返回可导入的 Markdown 内容。")
+
+    total_pages = metadata.get("total_pages")
+    if not isinstance(total_pages, int) or total_pages <= 0:
+        total_pages = len(chunks)
+
+    return {
+        "filename": source_name,
+        "document_name": source_name,
+        "total_chunks": len(chunks),
+        "total_pages": total_pages,
+        "loading_method": "mineru_vlm",
+        "loading_strategy": None,
+        "chunking_strategy": None,
+        "chunking_method": "mineru_markdown_sections",
+        "source_format": "mineru_vlm_markdown",
+        "timestamp": datetime.now().isoformat(),
+        "mineru_batch_id": metadata.get("mineru_batch_id"),
+        "mineru_model_version": metadata.get("mineru_model_version"),
+        "mineru_full_zip_url": metadata.get("mineru_full_zip_url"),
         "chunks": chunks,
     }
 
@@ -821,11 +882,13 @@ async def get_documents(type: str = Query("all")):
                                     "total_pages": doc_data.get("total_pages"),
                                     "total_chunks": doc_data.get("total_chunks"),
                                     "loading_method": doc_data.get("loading_method"),
-                                    "chunking_method": doc_data.get("chunking_method"),
-                                    "dataset_type": doc_data.get("dataset_type"),
-                                    "source_format": doc_data.get("source_format"),
-                                    "timestamp": doc_data.get("timestamp")
-                                }
+	                                    "chunking_method": doc_data.get("chunking_method"),
+	                                    "dataset_type": doc_data.get("dataset_type"),
+	                                    "source_format": doc_data.get("source_format"),
+	                                    "mineru_batch_id": doc_data.get("mineru_batch_id"),
+	                                    "mineru_model_version": doc_data.get("mineru_model_version"),
+	                                    "timestamp": doc_data.get("timestamp")
+	                                }
                             })
 
         # 读取chunked文档
@@ -1027,21 +1090,52 @@ async def parse_file(
     @param parsing_option 解析策略。
     @return 解析后的内容结构。
     """
+    temp_path = None
     try:
-        # 保存上传文件
-        temp_path = os.path.join("temp", file.filename)
+        # 保存上传文件到临时目录，避免信任客户端路径。
+        safe_filename = Path(file.filename or "uploaded_file").name
+        temp_path = os.path.join("temp", safe_filename)
+        os.makedirs("temp", exist_ok=True)
         with open(temp_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
         
         # 准备元数据
         metadata = {
-            "filename": file.filename,
+            "filename": safe_filename,
             "loading_method": loading_method,
             "original_file_size": len(content),
             "processing_date": datetime.now().isoformat(),
             "parsing_method": parsing_option,
         }
+
+        if loading_method == "mineru_vlm":
+            from services.mineru_service import MinerUPrecisionError, MinerUPrecisionParser
+
+            try:
+                mineru_parser = MinerUPrecisionParser()
+                parsed_content = await run_in_threadpool(
+                    mineru_parser.parse_file,
+                    temp_path,
+                    safe_filename,
+                )
+            except MinerUPrecisionError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            return {"parsed_content": parsed_content}
+
+        if loading_method == "mineru_agent":
+            from services.mineru_service import MinerUAgentError, MinerUAgentParser
+
+            try:
+                mineru_parser = MinerUAgentParser()
+                parsed_content = await run_in_threadpool(
+                    mineru_parser.parse_file,
+                    temp_path,
+                    safe_filename,
+                )
+            except MinerUAgentError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            return {"parsed_content": parsed_content}
         
         from services.loading_service import LoadingService
         from services.parsing_service import ParsingService
@@ -1060,13 +1154,15 @@ async def parse_file(
             page_map=page_map
         )
         
-        # 清理临时文件
-        os.remove(temp_path)
-        
         return {"parsed_content": parsed_content}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error parsing file: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @app.post("/load")
 async def load_file(
@@ -1084,16 +1180,19 @@ async def load_file(
     @param chunking_options JSON 编码的 unstructured 分块选项。
     @return 读入后的文档数据和持久化 JSON 路径。
     """
+    temp_path = None
     try:
-        # 保存上传的文件
-        temp_path = os.path.join("temp", file.filename)
+        # 保存上传文件到临时目录，避免信任客户端路径。
+        safe_filename = Path(file.filename or "uploaded_file").name
+        temp_path = os.path.join("temp", safe_filename)
+        os.makedirs("temp", exist_ok=True)
         with open(temp_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
         
         # 准备元数据
         metadata = {
-            "filename": file.filename,
+            "filename": safe_filename,
             "total_chunks": 0,  # 将在后面更新
             "total_pages": 0,   # 将在后面更新
             "loading_method": loading_method,
@@ -1106,6 +1205,31 @@ async def load_file(
         chunking_options_dict = None
         if chunking_options:
             chunking_options_dict = json.loads(chunking_options)
+
+        if loading_method == "mineru_vlm":
+            from services.mineru_service import MinerUPrecisionError, MinerUPrecisionParser
+
+            try:
+                mineru_parser = MinerUPrecisionParser()
+                parsed_content = await run_in_threadpool(
+                    mineru_parser.parse_file,
+                    temp_path,
+                    safe_filename,
+                )
+                document_data = _build_mineru_loaded_document(parsed_content, safe_filename)
+            except MinerUPrecisionError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            storage_name = f"{_safe_storage_stem(safe_filename, 'mineru_doc')}_mineru_vlm_{timestamp}.json"
+            os.makedirs("01-loaded-docs", exist_ok=True)
+            filepath = os.path.join("01-loaded-docs", storage_name)
+            with open(filepath, "w", encoding="utf-8") as handle:
+                json.dump(document_data, handle, ensure_ascii=False, indent=2)
+
+            return {"loaded_content": document_data, "filepath": filepath}
         
         from services.loading_service import LoadingService
 
@@ -1142,7 +1266,7 @@ async def load_file(
         
         # 使用 LoadingService 保存文档，传递strategy参数
         filepath = loading_service.save_document(
-            filename=file.filename,
+            filename=safe_filename,
             chunks=chunks,
             metadata=metadata,
             loading_method=loading_method,
@@ -1154,13 +1278,18 @@ async def load_file(
         with open(filepath, "r", encoding="utf-8") as f:
             document_data = json.load(f)
         
-        # 清理临时文件
-        os.remove(temp_path)
-        
         return {"loaded_content": document_data, "filepath": filepath}
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        logger.warning(f"分块选项 JSON 解析失败: {str(e)}")
+        raise HTTPException(status_code=400, detail="chunking_options 不是合法 JSON。") from e
     except Exception as e:
         logger.error(f"Error loading file: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @app.post("/load-course-qa-json")
 async def load_course_qa_json(file: UploadFile = File(...)):

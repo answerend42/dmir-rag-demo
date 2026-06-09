@@ -129,6 +129,29 @@ class StubParsingService:
         }
 
 
+class StubMinerUPrecisionParser:
+    def parse_file(self, file_path, file_name):
+        return {
+            "metadata": {
+                "filename": file_name,
+                "total_pages": 2,
+                "parsing_method": "mineru_vlm",
+                "source": "MinerU VLM 精准解析 API",
+                "mineru_batch_id": "batch-1",
+                "mineru_model_version": "vlm",
+                "mineru_full_zip_url": "https://example.test/full.zip",
+            },
+            "content": [
+                {
+                    "type": "Markdown",
+                    "title": "章节一",
+                    "content": "精准解析内容",
+                    "page": None,
+                }
+            ],
+        }
+
+
 class StubEmbeddingService:
     def create_embeddings(self, input_data, config):
         return [
@@ -204,11 +227,13 @@ class StubVectorStoreService:
 def test_process_parse_load_save_and_list_routes(client, main_module, monkeypatch):
     import services.chunking_service as chunking_module
     import services.loading_service as loading_module
+    import services.mineru_service as mineru_module
     import services.parsing_service as parsing_module
 
     monkeypatch.setattr(loading_module, "LoadingService", StubLoadingService)
     monkeypatch.setattr(chunking_module, "ChunkingService", StubChunkingService)
     monkeypatch.setattr(parsing_module, "ParsingService", StubParsingService)
+    monkeypatch.setattr(mineru_module, "MinerUPrecisionParser", StubMinerUPrecisionParser)
 
     upload = {"file": ("doc.pdf", b"%PDF unit", "application/pdf")}
     response = client.post("/process", files=upload, data={"loading_method": "pymupdf", "chunking_option": "fixed_size", "chunk_size": "100", "chunk_overlap": "20"})
@@ -223,6 +248,18 @@ def test_process_parse_load_save_and_list_routes(client, main_module, monkeypatc
     response = client.post("/load", files=upload, data={"loading_method": "unstructured", "strategy": "fast", "chunking_strategy": "basic", "chunking_options": "{}"})
     assert response.status_code == 200
     assert response.json()["loaded_content"]["filename"] == "doc.pdf"
+
+    response = client.post(
+        "/load",
+        files={"file": ("mineru.pdf", b"%PDF mineru", "application/pdf")},
+        data={"loading_method": "mineru_vlm"},
+    )
+    assert response.status_code == 200
+    mineru_doc = response.json()["loaded_content"]
+    assert mineru_doc["loading_method"] == "mineru_vlm"
+    assert mineru_doc["chunking_method"] == "mineru_markdown_sections"
+    assert mineru_doc["mineru_batch_id"] == "batch-1"
+    assert mineru_doc["chunks"][0]["metadata"]["section_title"] == "章节一"
 
     response = client.post(
         "/load-course-knowledge-doc",

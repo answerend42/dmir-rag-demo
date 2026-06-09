@@ -18,6 +18,7 @@ const ParseFile = () => {
   const [status, setStatus] = useState('');
   const [docName, setDocName] = useState('');
   const [isProcessed, setIsProcessed] = useState(false);
+  const isMinerU = loadingMethod === 'mineru_vlm' || loadingMethod === 'mineru_agent';
 
   const handleProcess = async () => {
     if (!file || !loadingMethod || !parsingOption) {
@@ -25,7 +26,7 @@ const ParseFile = () => {
       return;
     }
 
-    setStatus('正在解析文件...');
+    setStatus(isMinerU ? '正在调用 MinerU VLM 精准解析...' : '正在解析文件...');
     setParsedContent(null);
     setIsProcessed(false);
 
@@ -41,7 +42,8 @@ const ParseFile = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.detail || `HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
@@ -58,7 +60,7 @@ const ParseFile = () => {
     const file = e.target.files[0];
     if (file) {
       setFile(file);
-      const baseName = file.name.replace('.pdf', '');
+      const baseName = file.name.replace(/\.[^.]+$/, '');
       setDocName(baseName);
     }
   };
@@ -74,10 +76,14 @@ const ParseFile = () => {
         <div className="col-span-3 space-y-4">
           <div className="p-4 border rounded-lg bg-white shadow-sm">
             <div>
-              <label className="block text-sm font-medium mb-1">选择PDF文件</label>
+              <label htmlFor="parse-file-input" className="block text-sm font-medium mb-1">
+                {isMinerU ? '选择文档文件' : '选择PDF文件'}
+              </label>
               <input
+                id="parse-file-input"
+                name="parse-file"
                 type="file"
-                accept=".pdf"
+                accept={isMinerU ? '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.jp2,.webp,.gif,.bmp' : '.pdf'}
                 onChange={handleFileSelect}
                 className="block w-full border rounded px-3 py-2"
                 required
@@ -85,8 +91,10 @@ const ParseFile = () => {
             </div>
 
             <div className="mt-4">
-              <label className="block text-sm font-medium mb-1">装载工具</label>
+              <label htmlFor="parse-loading-method" className="block text-sm font-medium mb-1">装载工具</label>
               <select
+                id="parse-loading-method"
+                name="loading_method"
                 value={loadingMethod}
                 onChange={(e) => setLoadingMethod(e.target.value)}
                 className="block w-full p-2 border rounded"
@@ -95,12 +103,15 @@ const ParseFile = () => {
                 <option value="pypdf">PyPDF</option>
                 <option value="unstructured">Unstructured</option>
                 <option value="pdfplumber">PDF Plumber</option>
+                <option value="mineru_vlm">MinerU VLM 精准解析</option>
               </select>
             </div>
 
             <div className="mt-4">
-              <label className="block text-sm font-medium mb-1">解析选项</label>
+              <label htmlFor="parse-option" className="block text-sm font-medium mb-1">解析选项</label>
               <select
+                id="parse-option"
+                name="parsing_option"
                 value={parsingOption}
                 onChange={(e) => setParsingOption(e.target.value)}
                 className="block w-full p-2 border rounded"
@@ -130,25 +141,63 @@ const ParseFile = () => {
               <div className="mb-4 p-3 border rounded bg-gray-100">
                 <h4 className="font-medium mb-2">文档信息</h4>
                 <div className="text-sm text-gray-600">
-                  <p>总页数: {parsedContent.metadata?.total_pages}</p>
+                  <p>总页数: {parsedContent.metadata?.total_pages ?? '未返回'}</p>
                   <p>解析方法: {parsedContent.metadata?.parsing_method}</p>
+                  <p>解析来源: {parsedContent.metadata?.source ?? '本地解析'}</p>
+                  {parsedContent.metadata?.mineru_task_id && (
+                    <p>MinerU 任务: {parsedContent.metadata.mineru_task_id}</p>
+                  )}
+                  {parsedContent.metadata?.mineru_batch_id && (
+                    <p>MinerU 批次: {parsedContent.metadata.mineru_batch_id}</p>
+                  )}
+                  {parsedContent.metadata?.mineru_model_version && (
+                    <p>MinerU 模型: {parsedContent.metadata.mineru_model_version}</p>
+                  )}
+                  {parsedContent.metadata?.mineru_markdown_url && (
+                    <p>
+                      Markdown:
+                      {' '}
+                      <a
+                        href={parsedContent.metadata.mineru_markdown_url}
+                        className="text-blue-600 underline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        查看结果
+                      </a>
+                    </p>
+                  )}
+                  {parsedContent.metadata?.mineru_full_zip_url && (
+                    <p>
+                      结果压缩包:
+                      {' '}
+                      <a
+                        href={parsedContent.metadata.mineru_full_zip_url}
+                        className="text-blue-600 underline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        查看结果
+                      </a>
+                    </p>
+                  )}
                   <p>时间: {parsedContent.metadata?.timestamp && new Date(parsedContent.metadata.timestamp).toLocaleString()}</p>
                 </div>
               </div>
               <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
                 {parsedContent.content.map((item, idx) => (
-                  <div key={idx} className="p-3 border rounded bg-gray-50">
-                    <div className="font-medium text-sm text-gray-500 mb-1">
-                      {item.type} - 第 {item.page} 页
-                    </div>
-                    {item.title && (
-                      <div className="font-bold text-gray-700 mb-2">
+	                  <div key={idx} className="p-3 border rounded bg-gray-50">
+	                    <div className="font-medium text-sm text-gray-500 mb-1">
+	                      {item.type}{item.page ? ` - 第 ${item.page} 页` : ''}
+	                    </div>
+	                    {item.title && (
+	                      <div className="font-bold text-gray-700 mb-2">
                         {item.title}
                       </div>
                     )}
-                    <div className="text-sm text-gray-600">
-                      {item.content}
-                    </div>
+	                    <div className="text-sm text-gray-600 whitespace-pre-wrap">
+	                      {item.content}
+	                    </div>
                   </div>
                 ))}
               </div>
