@@ -688,14 +688,14 @@ async def search(
 @app.get("/collections/{provider}/{collection_name}/embeddings")
 async def get_collection_embeddings(provider: str, collection_name: str):
     """! @brief 获取指定 collection 的全部向量，用于数值查看。
-    @param provider 向量数据库提供方，目前只支持 chroma。
+    @param provider 向量数据库提供方，支持 chroma 或 faiss。
     @param collection_name 要读取的 collection 名称。
     @return collection 内的向量、文本和元数据。
     """
     try:
         provider_value = provider.strip().lower()
-        if provider_value != "chroma":
-            raise HTTPException(status_code=400, detail="当前向量可视化只支持 Chroma collection")
+        if provider_value not in {"chroma", "faiss"}:
+            raise HTTPException(status_code=400, detail="当前向量可视化只支持 Chroma 或 FAISS collection")
 
         from services.search_service import SearchService
 
@@ -710,15 +710,15 @@ async def get_collection_embeddings(provider: str, collection_name: str):
 @app.post("/collections/{provider}/{collection_name}/projection")
 async def get_collection_projection(provider: str, collection_name: str, payload: dict = Body(None)):
     """! @brief 获取指定 collection 的后端二维投影。
-    @param provider 向量数据库提供方，目前只支持 chroma。
+    @param provider 向量数据库提供方，支持 chroma 或 faiss。
     @param collection_name 要读取的 collection 名称。
     @param payload 投影方法和附加向量。
     @return collection 向量二维投影。
     """
     try:
         provider_value = provider.strip().lower()
-        if provider_value != "chroma":
-            raise HTTPException(status_code=400, detail="当前向量投影只支持 Chroma collection")
+        if provider_value not in {"chroma", "faiss"}:
+            raise HTTPException(status_code=400, detail="当前向量投影只支持 Chroma 或 FAISS collection")
 
         from services.search_service import SearchService
 

@@ -1,6 +1,6 @@
 /**
  * @file EvaluationDashboard.jsx
- * @brief 展示 LLM-only、Basic RAG 和 Optimized RAG 三模式评测摘要。
+ * @brief 展示 LLM-only 与 RAG 评测摘要。
  */
 /* eslint-disable react/prop-types */
 import { buildEvaluationRows, formatLatency } from './ragViewModel';
@@ -13,7 +13,7 @@ const asDisplayValue = (value) => {
 };
 
 /**
- * @brief 渲染三模式评测表。
+ * @brief 渲染评测摘要表。
  * @param {{
  *   summary: object,
  *   status?: {type?: string, message?: string},
@@ -31,7 +31,7 @@ const EvaluationDashboard = ({
   datasets = [],
   selectedDataset,
   onSelectDataset,
-  title = '三模式评测',
+  title = 'RAG 对照评测',
   description = 'RAG 评测摘要。',
 }) => {
   const rows = buildEvaluationRows(summary);

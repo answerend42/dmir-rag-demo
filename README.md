@@ -1,6 +1,6 @@
 # DMIR RAG Demo
 
-信息检索课程结课实验项目。当前展示目标是完成一条可解释、可量化、可视化的真实 RAG 链路：文档导入、分块、解析、嵌入、索引、检索、生成和向量投影。07 响应生成支持课程 QA 与 LLM-Wiki 论文两类入口：课程 QA 读取前端导入的题目和候选答案，再从外部知识 Chroma collection 检索证据进行排序；论文 RAG 维持普通文档问答流程。
+信息检索课程结课实验项目。当前展示目标是完成一条可解释、可量化、可视化的真实 RAG 链路：文档导入、分块、解析、嵌入、索引、检索、生成和向量投影。07 响应生成支持课程 QA 与 LLM-Wiki 论文两类入口：课程 QA 读取前端导入的题目和候选答案，再从外部知识索引库检索证据进行排序；论文 RAG 维持普通文档问答流程。
 
 前端入口：`http://127.0.0.1:5173/`
 后端 Swagger：`http://127.0.0.1:8001/docs`
@@ -11,6 +11,7 @@
 
 - 论文展示目标是 `Retrieval as Reasoning: Self-Evolving Agent-Native Retrieval via LLM-Wiki`。
 - 前端 07 响应生成可切换课程 QA 与论文 RAG：课程 QA 执行候选答案选优/排序，论文 RAG 执行普通证据问答。
+- 05 向量库索引可先选择 Chroma 或 FAISS：Chroma 提供 HNSW cosine 主链路，FAISS 提供 Flat、IVF、LSH 对比索引。
 - 07 已引用证据会显示相似性分数，分数语义为“越大越相关”。
 - 07 向量视图会标出用户 Query 向量点，并高亮 TopK 检索命中点。
 - 04 向量存储只保留 Qwen（百炼）和 HuggingFace 两类 embedding provider；Qwen 默认 `text-embedding-v4`，HF 可选 `BAAI/bge-small-zh-v1.5` 与 `intfloat/multilingual-e5-small`。
@@ -71,10 +72,11 @@ python -m compileall backend/rag_core backend/services/search_service.py backend
 cd frontend && npm run build
 ```
 
-查看可用 Chroma 索引库：
+查看可用索引库：
 
 ```shell
 curl -sS "http://127.0.0.1:8001/collections?provider=chroma"
+curl -sS "http://127.0.0.1:8001/collections?provider=faiss"
 ```
 
 执行检索并回传 Query 向量：
@@ -125,22 +127,25 @@ curl -sS "http://127.0.0.1:8001/collections/chroma/file_2605.25480v2_huggingface
    - 页面内“向量投影视图”会用后端降维结果展示 embedding 分布，默认 3D，可切回 2D。
 
 5. **向量库索引**：`/indexing`
-   - 将 embedding 文件写入 Chroma。
-   - 生成后会得到一个 Chroma collection 名称，后续检索和生成都选择这个索引库。
+   - 先选择向量库：Chroma 或 FAISS。
+   - Chroma 当前保留 HNSW，使用 cosine 距离作为主 RAG 链路。
+   - FAISS 支持 Flat、IVF、LSH，索引文件写入 `03-vector-store/faiss-indexes/`。
+   - 生成后会得到一个 collection 名称，后续检索和生成都选择这个索引库。
+   - FAISS Flat 精确计算全部向量；FAISS IVF 先用倒排簇找候选；FAISS LSH 用随机超平面生成二进制签名并召回候选。
 
 6. **相似性检索**：`/search`
-   - 选择 Chroma collection 并检索证据。
+   - 选择 collection 并检索证据。
    - `SearchHit.score` 语义必须保持“越大越相关”。
 
 7. **响应生成**：`/generation`
-   - 课程 QA：选择 01 导入的课程 QA 文件和题目，再选择外部知识 Chroma 索引库，系统会检索外部证据并调用百炼对候选答案选优/排序。
-   - 论文 RAG：选择论文 Chroma 索引库，输入问题并运行普通 RAG 问答。
+   - 课程 QA：选择 01 导入的课程 QA 文件和题目，再选择外部知识索引库，系统会检索外部证据并调用百炼对候选答案选优/排序。
+   - 论文 RAG：选择论文索引库，输入问题并运行普通 RAG 问答。
    - 已引用证据显示相似性分数。
    - 向量视图标出 Query 点和 TopK 命中点。
 
 ## 相似性分数
 
-论文 RAG 使用 Chroma HNSW，并在索引时设置 `hnsw:space = cosine`。Chroma query 返回的是 distance，后端展示时转换为：
+HNSW 使用 Chroma，并在索引时设置 `hnsw:space = cosine`。Chroma query 返回的是 distance，后端展示时转换为：
 
 ```text
 score = 1 - Chroma distance
@@ -150,7 +155,13 @@ score = 1 - Chroma distance
 
 - distance 越小，向量越接近。
 - score 越大，证据越相关。
-- 前端只展示 score，不把它当作生成模型置信度。
+FAISS Flat、IVF 和 LSH 的前端展示分数统一为：
+
+```text
+score = cosine(query, chunk)
+```
+
+其中 Flat 使用 `IndexFlatIP` 在归一化向量上精确检索；IVF 使用 `IndexIVFFlat` 先筛候选；LSH 使用 `IndexLSH` 先召回候选，再由后端按 cosine 重排。前端只展示 score，不把它当作生成模型置信度。
 
 ## 论文数据
 
@@ -207,7 +218,7 @@ docs/
 
 ### 课程 QA 或论文展示应该用哪个集合？
 
-课程 QA 的 QA JSON 是任务输入，不再作为“知识库答案”来检索；07 页面会从 01 导入结果中读取题目和候选答案。课程 QA 的 collection 应选择外部知识文档构建出来的 Chroma 索引库。论文 RAG 则选择论文文档构建出来的 Chroma 索引库。可用集合以当前后端 `/collections?provider=chroma` 返回为准。示例：
+课程 QA 的 QA JSON 是任务输入，不再作为“知识库答案”来检索；07 页面会从 01 导入结果中读取题目和候选答案。课程 QA 的 collection 应选择外部知识文档构建出来的索引库。论文 RAG 则选择论文文档构建出来的索引库。07 会同时列出 Chroma 和 FAISS collection；接口可分别查看 `/collections?provider=chroma` 与 `/collections?provider=faiss`。示例：
 
 ```text
 file_2605.25480v2_huggingface_20260608232418
@@ -217,8 +228,8 @@ file_2605.25480v2_huggingface_20260608232418
 
 当前已经提供两种真实来源：
 
-1. 上传已有课程讲义、教材摘录或参考资料 PDF，走 `PDF 文档 -> 02 分块 -> 04 embedding -> 05 Chroma 索引`。
-2. 上传仓库内的 `sample_data/daily_life_knowledge_reference.md`，走 `课程知识文档 -> 02 分块 -> 04 embedding -> 05 Chroma 索引`。
+1. 上传已有课程讲义、教材摘录或参考资料 PDF，走 `PDF 文档 -> 02 分块 -> 04 embedding -> 05 索引`。
+2. 上传仓库内的 `sample_data/daily_life_knowledge_reference.md`，走 `课程知识文档 -> 02 分块 -> 04 embedding -> 05 索引`。
 
 第二种用于当前日常生活主题现场演示，后续拿到真实课程资料后可直接替换文档，不需要改 07 逻辑。
 

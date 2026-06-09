@@ -45,18 +45,17 @@ test('createSafeRagAnswerViewModel removes answer_quality from nested display da
   assert.equal(viewModel.citations[0].metadata.keep, 'visible');
 });
 
-test('buildEvaluationRows keeps stable llm/basic/optimized ordering', () => {
+test('buildEvaluationRows keeps stable llm/rag ordering', () => {
   const rows = buildEvaluationRows({
     llm_only: { answerable: 2, cited: 0, avg_latency_ms: 1200 },
     basic_rag: { answerable: 4, cited: 3, avg_latency_ms: 1800 },
-    optimized_rag: { answerable: 5, cited: 5, avg_latency_ms: 2200 },
   });
 
   assert.deepEqual(
     rows.map((row) => row.mode),
-    ['llm_only', 'basic_rag', 'optimized_rag'],
+    ['llm_only', 'basic_rag'],
   );
-  assert.equal(rows[2].label, 'Optimized RAG');
+  assert.equal(rows[1].label, 'RAG');
   assert.equal(rows[1].cited, 3);
 });
 

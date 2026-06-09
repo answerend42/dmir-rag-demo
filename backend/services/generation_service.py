@@ -366,7 +366,7 @@ AI回复：{responseInfo}
         @param load_model 调用前是否需要加载本地模型。
         @param api_key 托管提供方的可选 API 密钥。
         @param show_reasoning 支持时是否包含推理输出。
-        @param rag_mode 生成模式，支持 basic_rag、optimized_rag 和 llm_only。
+        @param rag_mode 生成模式，前端仅使用 basic_rag 和 llm_only。
         @return 回答文本和保存文件路径。
 
         生成回答并保存结果

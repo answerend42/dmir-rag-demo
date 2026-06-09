@@ -272,7 +272,7 @@ class VectorProjectionService:
                 "description": (
                     "t-SNE 坐标只用于展示局部邻域结构，不参与检索排序。"
                     if index == 0
-                    else "TopK 排名仍来自 Chroma 检索结果。"
+                    else "TopK 排名仍来自向量检索结果。"
                 ),
             }
             for index, axis_name in enumerate(_PLOT_AXIS_NAMES[:target_dimensions])

@@ -13,6 +13,7 @@ import os
 import json
 from pymilvus import MilvusClient, exceptions
 import chromadb
+from services.faiss_index_service import FaissVectorIndexService
 
 chromadb_path = "./03-vector-store/chromadb"
 
@@ -36,6 +37,7 @@ class SearchService:
         self.search_results_dir = "04-search-results"
         os.makedirs(self.search_results_dir, exist_ok=True)
         self.client=chromadb.PersistentClient(chromadb_path)
+        self.faiss_index_service = FaissVectorIndexService()
 
     def get_providers(self) -> List[Dict[str, str]]:
         """
@@ -46,19 +48,30 @@ class SearchService:
         """
         return [
             #     {"id": VectorDBProvider.MILVUS.value, "name": "Milvus"}
-            {"id": VectorDBProvider.CHROMA.value, "name": "chroma"}
+            {"id": VectorDBProvider.CHROMA.value, "name": "Chroma"},
+            {"id": VectorDBProvider.FAISS.value, "name": "FAISS"},
         ]
+
+    @staticmethod
+    def _provider_value(provider: Any) -> str:
+        """! @brief 将 provider 枚举或字符串统一为小写字符串。"""
+        if hasattr(provider, "value"):
+            value = provider.value
+            if isinstance(value, tuple):
+                value = value[0]
+            return str(value).lower()
+        return str(provider).lower()
 
     def list_collections(self, provider: str = VectorDBProvider.CHROMA.value) -> List[Dict[str, Any]]:
         """! @brief 获取指定向量数据库中的所有集合。
-        @param provider 向量数据库提供方，支持 chroma 或 milvus。
+        @param provider 向量数据库提供方，支持 chroma、faiss 或 milvus。
         @return 集合信息列表，包含 id、name 和 count。
         """
         try:
-            provider_value = str(provider).strip().lower()
+            provider_value = self._provider_value(provider)
             logger.info(f"List collections for provider: {provider_value}")
 
-            if provider_value == VectorDBProvider.MILVUS.value:
+            if provider_value == self._provider_value(VectorDBProvider.MILVUS):
                 connections.connect(alias="default", uri=MILVUS_CONFIG["uri"])
                 try:
                     return [
@@ -68,7 +81,10 @@ class SearchService:
                 finally:
                     connections.disconnect("default")
 
-            if provider_value != VectorDBProvider.CHROMA.value:
+            if provider_value == self._provider_value(VectorDBProvider.FAISS):
+                return self.faiss_index_service.list_indexes()
+
+            if provider_value != self._provider_value(VectorDBProvider.CHROMA):
                 return []
 
             collections = []
@@ -87,6 +103,9 @@ class SearchService:
                         "id": name,
                         "name": name,
                         "count": collection.count() if hasattr(collection, "count") else 0,
+                        "database": "chroma",
+                        "index_mode": sample_metadata.get("index_mode", "hnsw"),
+                        "index_family": sample_metadata.get("index_family", "hnsw"),
                         "dataset_type": sample_metadata.get("dataset_type"),
                         "source_role": sample_metadata.get("source_role"),
                         "document_name": sample_metadata.get("document_name") or sample_metadata.get("source"),
@@ -173,10 +192,13 @@ class SearchService:
         return metadata
 
     def get_collection_embeddings(self, collection_id: str) -> Dict[str, Any]:
-        """! @brief 读取 Chroma collection 中的全部向量，用于数值查看。
-        @param collection_id Chroma collection 名称。
+        """! @brief 读取索引库中的全部向量，用于数值查看。
+        @param collection_id collection 名称。
         @return 包含 collection 元信息和 embedding 条目的响应。
         """
+        if self.faiss_index_service.exists(collection_id):
+            return self.faiss_index_service.get_embeddings(collection_id)
+
         collection = self.client.get_collection(collection_id)
         raw_data = collection.get(include=["documents", "metadatas", "embeddings"])
         ids = raw_data.get("ids") or []
@@ -224,8 +246,8 @@ class SearchService:
         overlays: Optional[List[Dict[str, Any]]] = None,
         target_dimensions: int = 3,
     ) -> Dict[str, Any]:
-        """! @brief 读取 Chroma collection 并在后端计算二维投影。
-        @param collection_id Chroma collection 名称。
+        """! @brief 读取索引库向量并在后端计算二维或三维投影。
+        @param collection_id collection 名称。
         @param method 投影方法。
         @param overlays 附加向量，例如查询向量。
         @param target_dimensions 输出维度，只支持 2 或 3。
@@ -287,10 +309,47 @@ class SearchService:
             logger.info(
                 f"Starting search with parameters - Collection: {collection_id}, Query: {query}, Top K: {top_k}")
 
-            # 连接到 Chroma
-            # 获取collection
             logger.info(f"Loading collection: {collection_id}")
 
+            if self.faiss_index_service.exists(collection_id):
+                sample_metadata = self.faiss_index_service.sample_metadata(collection_id)
+                query_embedding = self.embedding_service.create_single_embedding(
+                    query,
+                    provider=sample_metadata.get('embedding_provider'),
+                    model=sample_metadata.get('embedding_model')
+                )
+                faiss_response = self.faiss_index_service.search(
+                    collection_id=collection_id,
+                    query_embedding=query_embedding,
+                    top_k=top_k,
+                    threshold=threshold,
+                    word_count_threshold=word_count_threshold,
+                )
+                response_data = {
+                    "results": faiss_response.get("results", []),
+                    "index_mode": faiss_response.get("index_mode"),
+                    "index_family": faiss_response.get("index_family"),
+                    "score_algorithm": faiss_response.get("score_algorithm"),
+                }
+                if include_query_embedding:
+                    response_data["query_embedding"] = self._coerce_vector(query_embedding)
+                    response_data["query_embedding_metadata"] = {
+                        "query": query,
+                        "collection_id": collection_id,
+                        "embedding_provider": sample_metadata.get("embedding_provider"),
+                        "embedding_model": sample_metadata.get("embedding_model"),
+                        "vector_dimension": len(query_embedding),
+                    }
+                if save_results:
+                    response_data["saved_filepath"] = self.save_search_results(
+                        query,
+                        collection_id,
+                        response_data["results"],
+                    )
+                return response_data
+
+            # 连接到 Chroma
+            # 获取collection
             collection = self.client.get_collection(collection_id)
             # 记录collection的基本信息
             num_entities=collection.count()
@@ -443,6 +502,13 @@ class SearchService:
             #             })
 
             response_data = {"results": processed_results}
+            response_data["index_mode"] = sample_metadata.get("index_mode", "hnsw")
+            response_data["index_family"] = sample_metadata.get("index_family", "hnsw")
+            response_data["score_algorithm"] = {
+                "name": "Chroma HNSW cosine",
+                "formula": "score = 1 - Chroma distance",
+                "note": "Chroma distance 越小越相近；前端展示的 score 越大越相关。",
+            }
             if include_query_embedding:
                 response_data["query_embedding"] = self._coerce_vector(query_embedding)
                 response_data["query_embedding_metadata"] = {
@@ -451,11 +517,6 @@ class SearchService:
                     "embedding_provider": sample_metadata.get("embedding_provider"),
                     "embedding_model": sample_metadata.get("embedding_model"),
                     "vector_dimension": len(query_embedding),
-                }
-                response_data["score_algorithm"] = {
-                    "name": "Chroma HNSW cosine",
-                    "formula": "score = 1 - Chroma distance",
-                    "note": "Chroma distance 越小越相近；前端展示的 score 越大越相关。",
                 }
 
             # 添加详细的保存逻辑日志

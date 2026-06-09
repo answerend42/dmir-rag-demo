@@ -370,10 +370,21 @@ def test_vector_store_chroma_helpers_and_milvus_paths(tmp_path, monkeypatch):
 
     chroma_result = service.index_embeddings(str(data_path), VectorDBConfig("chroma", "hnsw"))
     assert chroma_result["index_size"] == 1
+    assert chroma_result["index_family"] == "hnsw"
     assert unit_client.collection.added
     assert "embedding_function" not in unit_client.collection.created_kwargs
     assert "vector" not in unit_client.collection.added[0]["metadatas"][0]
     assert unit_client.collection.added[0]["metadatas"][0]["vector_dimension"] == 3
+
+    for mode in ["flat", "ivf", "lsh"]:
+        faiss_result = service.index_embeddings(str(data_path), VectorDBConfig("faiss", mode))
+        assert faiss_result["database"] == "faiss"
+        assert faiss_result["index_family"] == "faiss"
+        assert faiss_result["index_mode"] == mode
+        assert faiss_result["index_size"] == 1
+        faiss_info = service.get_collection_info(VectorDBProvider.FAISS, faiss_result["collection_name"])
+        assert faiss_info["schema"]["index_mode"] == mode
+        assert service.delete_collection(VectorDBProvider.FAISS, faiss_result["collection_name"]) is True
 
     assert service.list_collections(VectorDBProvider.CHROMA)[0].name == "collection"
     assert service.delete_collection(VectorDBProvider.CHROMA, "collection") is True
@@ -445,12 +456,18 @@ async def test_search_service_collections_search_and_save(tmp_path, monkeypatch)
     monkeypatch.setattr(search_module.connections, "disconnect", lambda *args, **kwargs: None)
 
     service = SearchService()
-    assert service.get_providers() == [{"id": "chroma", "name": "chroma"}]
+    assert service.get_providers() == [
+        {"id": "chroma", "name": "Chroma"},
+        {"id": "faiss", "name": "FAISS"},
+    ]
     assert service.list_collections() == [
         {
             "id": "collection",
             "name": "collection",
             "count": 1,
+            "database": "chroma",
+            "index_mode": "hnsw",
+            "index_family": "hnsw",
             "dataset_type": None,
             "source_role": None,
             "document_name": None,
@@ -465,12 +482,23 @@ async def test_search_service_collections_search_and_save(tmp_path, monkeypatch)
     result = await service.search("query", "collection", top_k=2, threshold=0.5, save_results=True)
     assert len(result["results"]) == 1
     assert result["saved_filepath"].endswith(".json")
+    assert result["score_algorithm"]["name"] == "Chroma HNSW cosine"
 
     filtered_by_words = await service.search("query", "collection", top_k=2, threshold=0.5, word_count_threshold=20)
-    assert filtered_by_words == {"results": []}
+    assert filtered_by_words["results"] == []
+    assert filtered_by_words["index_family"] == "hnsw"
 
     no_hits = await service.search("query", "collection", top_k=2, threshold=0.95, save_results=True)
-    assert no_hits == {"results": []}
+    assert no_hits["results"] == []
+
+    service.faiss_index_service.build_index(sample_embeddings(), "faiss_flat", "flat")
+    assert service.list_collections("faiss")[0]["name"] == "faiss_flat"
+    faiss_result = await service.search("query", "faiss_flat", top_k=1, threshold=-1, include_query_embedding=True)
+    assert len(faiss_result["results"]) == 1
+    assert faiss_result["index_family"] == "faiss"
+    assert faiss_result["score_algorithm"]["name"] == "FAISS Flat cosine"
+    assert faiss_result["query_embedding_metadata"]["collection_id"] == "faiss_flat"
+    assert service.faiss_index_service.delete_index("faiss_flat") is True
 
     service.client = SimpleNamespace(
         list_collections=lambda: [SimpleNamespace(name="bad")],

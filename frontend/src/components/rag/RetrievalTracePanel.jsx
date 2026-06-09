@@ -66,9 +66,9 @@ const attachCitationScores = (citations = [], retrievedHits = []) =>
   });
 
 const defaultScoreAlgorithm = {
-  name: 'Chroma HNSW cosine',
-  formula: 'score = 1 - Chroma distance',
-  note: 'Chroma distance 越小越相近；前端展示的 score 越大越相关。',
+  name: '向量检索相似度',
+  formula: 'score = normalized relevance score',
+  note: '不同索引后端统一展示为越大越相关；具体算法以本次检索返回为准。',
 };
 
 /**

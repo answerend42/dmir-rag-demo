@@ -3,9 +3,64 @@
  * @file Indexing.jsx
  * @brief 向量数据库索引和集合管理页面。
  */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import RandomImage from '../components/RandomImage';
 import { apiBaseUrl } from '../config/config';
+
+const INDEX_MODE_CONFIG = {
+  chroma: {
+    hnsw: {
+      label: 'HNSW（Chroma）',
+      summary: 'Chroma 本地 collection 使用 HNSW 图结构近似最近邻索引，度量设置为 cosine。',
+    },
+  },
+  faiss: {
+    flat: {
+      label: 'Flat 精确检索',
+      summary: 'FAISS IndexFlatIP 在归一化向量上精确计算全部向量的 cosine，相当于暴力检索基线。',
+    },
+    ivf: {
+      label: 'IVF 倒排文件',
+      summary: 'FAISS IndexIVFFlat 先用倒排簇缩小候选集合，再返回归一化向量内积。',
+    },
+    lsh: {
+      label: 'LSH 随机超平面',
+      summary: 'FAISS IndexLSH 用二进制签名召回候选，再由后端按 cosine 重排。',
+    },
+  },
+};
+
+const getProviderIndexConfig = (provider) => (
+  INDEX_MODE_CONFIG[provider] || INDEX_MODE_CONFIG.chroma
+);
+
+const formatProviderName = (provider) => {
+  const labels = {
+    chroma: 'Chroma',
+    faiss: 'FAISS',
+  };
+  return labels[String(provider || '').toLowerCase()] || provider || '-';
+};
+
+const formatIndexModeName = (mode) => {
+  const labels = {
+    hnsw: 'HNSW',
+    flat: 'Flat',
+    ivf: 'IVF',
+    lsh: 'LSH',
+  };
+  return labels[String(mode || '').toLowerCase()] || mode || '未标注索引';
+};
+
+const getCollectionOptionLabel = (collection = {}, selectedProvider = '') => {
+  const provider = collection.database || selectedProvider;
+  const parts = [
+    `${collection.count ?? 0} 个文档`,
+    formatProviderName(provider),
+    formatIndexModeName(collection.index_mode),
+  ].filter(Boolean);
+  return `${collection.name}${parts.length ? ` (${parts.join(' · ')})` : ''}`;
+};
 
 /**
  * @brief 渲染嵌入索引和集合查看控件。
@@ -13,41 +68,17 @@ import { apiBaseUrl } from '../config/config';
  */
 const Indexing = () => {
   const [embeddingFile, setEmbeddingFile] = useState('');
-  //const [vectorDb, setVectorDb] = useState('milvus');
-  const [vectorDb, setVectorDb] = useState('chroma');
-  const [indexMode, setIndexMode] = useState('standard');
+  const [indexMode, setIndexMode] = useState('hnsw');
   const [status, setStatus] = useState('');
   const [embeddedFiles, setEmbeddedFiles] = useState([]);
   const [indexingResult, setIndexingResult] = useState(null);
   const [collections, setCollections] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState('');
-  const [collectionDetails, setCollectionDetails] = useState(null);
   const [providers, setProviders] = useState([]);
-  //const [selectedProvider, setSelectedProvider] = useState('milvus');
   const [selectedProvider, setSelectedProvider] = useState('chroma');
-
-
-  // 数据库和索引模式的配置
-  const dbConfigs = {
-    pinecone: {
-      modes: ['standard', 'hybrid']
-    },
-    milvus: {
-      modes: ['flat', 'ivf_flat', 'ivf_sq8', 'hnsw']
-    },
-    qdrant: {
-      modes: ['hnsw', 'custom']
-    },
-    weaviate: {
-      modes: ['hnsw', 'flat']
-    },
-    chroma: {
-      modes: ['hnsw', 'standard']
-    },
-    faiss: {
-      modes: ['flat', 'ivf', 'hnsw']
-    }
-  };
+  const activeIndexConfig = getProviderIndexConfig(selectedProvider);
+  const activeIndexModes = Object.keys(activeIndexConfig);
+  const activeIndexModeConfig = activeIndexConfig[indexMode] || activeIndexConfig[activeIndexModes[0]];
 
   useEffect(() => {
     fetchEmbeddedFiles();
@@ -55,22 +86,28 @@ const Indexing = () => {
   }, []);
 
   useEffect(() => {
-    // 当数据库改变时，重置索引模式为该数据库的第一个可用模式
-    setIndexMode(dbConfigs[vectorDb].modes[0]);
-  }, [vectorDb]);
-
-  useEffect(() => {
     const fetchData = async () => {
       try {
         // 获取providers列表
         const providersResponse = await fetch(`${apiBaseUrl}/providers`);
         const providersData = await providersResponse.json();
-        setProviders(providersData.providers);
+        const nextProviders = providersData.providers || [];
+        setProviders(nextProviders);
+        if (nextProviders.length > 0 && !nextProviders.some(provider => provider.id === selectedProvider)) {
+          setSelectedProvider(nextProviders[0].id);
+          return;
+        }
 
         // 获取collections列表
         const collectionsResponse = await fetch(`${apiBaseUrl}/collections?provider=${selectedProvider}`);
         const collectionsData = await collectionsResponse.json();
-        setCollections(collectionsData.collections);
+        const nextCollections = collectionsData.collections || [];
+        setCollections(nextCollections);
+        setSelectedCollection((currentCollection) => (
+          nextCollections.some((collection) => collection.id === currentCollection)
+            ? currentCollection
+            : ''
+        ));
       } catch (error) {
         console.error('Error fetching data:', error);
       }
@@ -78,6 +115,13 @@ const Indexing = () => {
 
     fetchData();
   }, [selectedProvider]);
+
+  useEffect(() => {
+    const modes = Object.keys(getProviderIndexConfig(selectedProvider));
+    if (!modes.includes(indexMode)) {
+      setIndexMode(modes[0]);
+    }
+  }, [selectedProvider, indexMode]);
 
   const fetchEmbeddedFiles = async () => {
     try {
@@ -100,7 +144,13 @@ const Indexing = () => {
     try {
       const response = await fetch(`${apiBaseUrl}/collections?provider=${selectedProvider}`);
       const data = await response.json();
-      setCollections(data.collections || []);
+      const nextCollections = data.collections || [];
+      setCollections(nextCollections);
+      setSelectedCollection((currentCollection) => (
+        nextCollections.some((collection) => collection.id === currentCollection)
+          ? currentCollection
+          : ''
+      ));
     } catch (error) {
       console.error('Error fetching collections:', error);
     }
@@ -114,6 +164,7 @@ const Indexing = () => {
 
     setStatus('正在建立索引...');
     try {
+      const selectedIndexMode = activeIndexModes.includes(indexMode) ? indexMode : activeIndexModes[0];
       const response = await fetch(`${apiBaseUrl}/index`, {
         method: 'POST',
         headers: {
@@ -121,14 +172,21 @@ const Indexing = () => {
         },
         body: JSON.stringify({
           fileId: embeddingFile,
-          vectorDb,
-          indexMode
+          vectorDb: selectedProvider,
+          indexMode: selectedIndexMode
         }),
       });
       
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${response.status}`);
+      }
       setIndexingResult(data);
+      setSelectedCollection(data.collection_name || '');
       setStatus('索引建立完成');
+      const collectionsResponse = await fetch(`${apiBaseUrl}/collections?provider=${selectedProvider}`);
+      const collectionsData = await collectionsResponse.json();
+      setCollections(collectionsData.collections || []);
     } catch (error) {
       console.error('Error indexing:', error);
       setStatus('索引失败: ' + error.message);
@@ -148,7 +206,10 @@ const Indexing = () => {
         database: selectedProvider,
         collection_name: data.name,
         total_vectors: data.num_entities,
-        index_size: data.num_entities
+        index_size: data.num_entities,
+        index_mode: data.schema?.index_mode,
+        index_family: data.schema?.index_family,
+        index_parameters: data.schema?.index_parameters,
       };
 
       // 只在有实际值时添加可选属性
@@ -220,7 +281,12 @@ const Indexing = () => {
               <label className="block text-sm font-medium mb-1">向量库</label>
               <select
                 value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value)}
+                onChange={(e) => {
+                  setSelectedProvider(e.target.value);
+                  setSelectedCollection('');
+                  setIndexingResult(null);
+                  setCollections([]);
+                }}
                 className="block w-full p-2 border rounded"
               >
                 {providers.map(provider => (
@@ -233,18 +299,21 @@ const Indexing = () => {
 
             {/* 索引模式选择 */}
             <div>
-              <label className="block text-sm font-medium mb-1">索引模式</label>
+              <label className="block text-sm font-medium mb-1">索引方式</label>
               <select
                 value={indexMode}
                 onChange={(e) => setIndexMode(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                {dbConfigs[vectorDb].modes.map(mode => (
+                {activeIndexModes.map(mode => (
                   <option key={mode} value={mode}>
-                    {mode.toUpperCase()}
+                    {activeIndexConfig[mode].label}
                   </option>
                 ))}
               </select>
+              <p className="mt-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs leading-5 text-slate-600">
+                {activeIndexModeConfig.summary}
+              </p>
             </div>
 
             {/* 操作按钮和集合管理 */}
@@ -269,10 +338,10 @@ const Indexing = () => {
                   <option value="">请选择集合...</option>
                   {collections.map(coll => (
                     <option key={coll.id} value={coll.id}>
-                      {coll.name} ({coll.count} 个文档)
-                    </option>
-                  ))}
-                </select>
+                    {getCollectionOptionLabel(coll, selectedProvider)}
+                  </option>
+                ))}
+              </select>
               </div>
 
               {/* 集合显示按钮 */}
@@ -314,12 +383,20 @@ const Indexing = () => {
                     {indexingResult.index_mode && (
                       <p>索引模式: {indexingResult.index_mode}</p>
                     )}
+                    {indexingResult.index_family && (
+                      <p>索引族: {indexingResult.index_family}</p>
+                    )}
                     <p>向量总数: {indexingResult.total_vectors}</p>
                     <p>索引大小: {indexingResult.index_size}</p>
                     {indexingResult.processing_time && (
                       <p>处理耗时: {indexingResult.processing_time}s</p>
                     )}
                     <p>集合名称: {indexingResult.collection_name}</p>
+                    {indexingResult.index_parameters && Object.keys(indexingResult.index_parameters).length > 0 && (
+                      <pre className="mt-2 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                        {JSON.stringify(indexingResult.index_parameters, null, 2)}
+                      </pre>
+                    )}
                   </div>
                 </div>
               </div>

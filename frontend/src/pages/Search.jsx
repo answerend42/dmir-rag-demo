@@ -3,7 +3,7 @@
  * @file Search.jsx
  * @brief 语义检索工作流页面。
  */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import RandomImage from '../components/RandomImage';
 import { apiBaseUrl } from '../config/config';
 
@@ -162,7 +162,11 @@ const Search = () => {
                 <label className="block text-sm font-medium mb-1">向量库</label>
                 <select
                   value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedProvider(e.target.value);
+                    setCollection('');
+                    setResults([]);
+                  }}
                   className="block w-full p-2 border rounded"
                 >
                   {providers.map(provider => (
@@ -183,7 +187,7 @@ const Search = () => {
                   <option value="">请选择集合...</option>
                   {collections.map(coll => (
                     <option key={coll.id} value={coll.id}>
-                      {coll.name} ({coll.count} 个文档)
+                      {coll.name} ({coll.count} 个文档 · {coll.database || selectedProvider} · {coll.index_mode || 'hnsw'})
                     </option>
                   ))}
                 </select>

@@ -9,6 +9,7 @@ class VectorDBProvider(str, Enum):
     """! @brief 支持的向量数据库提供方标识。"""
     MILVUS = "milvus",
     CHROMA = "chroma"
+    FAISS = "faiss"
     # 后续可继续添加更多提供方
 
 # 可以在这里添加其他配置相关的内容

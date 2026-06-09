@@ -16,9 +16,11 @@ from pymilvus import MilvusClient, exceptions
 import chromadb
 import re
 from chromadb.utils import embedding_functions
+from services.faiss_index_service import FaissVectorIndexService, FAISS_INDEX_MODES
 
 chromadb_path = "./03-vector-store/chromadb"
 logger = logging.getLogger(__name__)
+CHROMA_INDEX_MODES = {"hnsw", "standard"}
 
 def clean_filename(file_name: str) -> str:
     """! @brief 将文件名转换为 Chroma/Milvus 可用的集合名前缀。
@@ -132,6 +134,23 @@ class VectorStoreService:
 
         # 连接到chroma
         self.client=chromadb.PersistentClient(chromadb_path)
+        self.faiss_index_service = FaissVectorIndexService()
+
+    @staticmethod
+    def _provider_value(provider: Any) -> str:
+        """! @brief 将 provider 枚举或字符串统一为小写字符串。"""
+        if hasattr(provider, "value"):
+            value = provider.value
+            if isinstance(value, tuple):
+                value = value[0]
+            return str(value).lower()
+        return str(provider).lower()
+
+    @staticmethod
+    def _normalize_index_mode(index_mode: str) -> str:
+        """! @brief 将旧版 standard 映射为 Chroma HNSW。"""
+        normalized = str(index_mode or "hnsw").strip().lower()
+        return "hnsw" if normalized == "standard" else normalized
 
     def _get_milvus_index_type(self, config: VectorDBConfig) -> str:
         """
@@ -173,23 +192,31 @@ class VectorStoreService:
         # 读取embedding文件
         embeddings_data = self._load_embeddings(embedding_file)
 
-        # 根据不同的数据库进行索引
-        if config.provider == VectorDBProvider.MILVUS:
-            result = self._index_to_milvus(embeddings_data, config)
+        provider_value = self._provider_value(config.provider)
+        index_mode = self._normalize_index_mode(config.index_mode)
 
-        if config.provider == VectorDBProvider.CHROMA:
+        # 根据不同的数据库进行索引
+        if provider_value == self._provider_value(VectorDBProvider.MILVUS):
+            result = self._index_to_milvus(embeddings_data, config)
+        elif provider_value == self._provider_value(VectorDBProvider.FAISS):
+            result = self._index_to_faiss(embeddings_data, config, index_mode)
+        elif provider_value == self._provider_value(VectorDBProvider.CHROMA):
             result = self._index_to_chroma(embeddings_data, config)
+        else:
+            raise ValueError(f"Unsupported vector database provider: {config.provider}")
 
         end_time = datetime.now()
         processing_time = (end_time - start_time).total_seconds()
 
         return {
-            "database": config.provider,
-            "index_mode": config.index_mode,
+            "database": result.get("database", provider_value),
+            "index_mode": result.get("index_mode", index_mode),
+            "index_family": result.get("index_family", result.get("index_mode", index_mode)),
             "total_vectors": len(embeddings_data["embeddings"]),
             "index_size": result.get("index_size", "N/A"),
             "processing_time": processing_time,
-            "collection_name": result.get("collection_name", "N/A")
+            "collection_name": result.get("collection_name", "N/A"),
+            "index_parameters": result.get("index_parameters", {}),
         }
 
     def _load_embeddings(self, file_path: str) -> Dict[str, Any]:
@@ -400,7 +427,10 @@ class VectorStoreService:
             # 获取嵌入提供方
             embedding_provider = embeddings_data.get("embedding_provider", "unknown")
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            collection_name = f"{base_name}_{embedding_provider}_{timestamp}"
+            index_mode = self._normalize_index_mode(config.index_mode)
+            if index_mode not in CHROMA_INDEX_MODES:
+                raise ValueError(f"Chroma HNSW 路径不支持索引模式: {index_mode}")
+            collection_name = f"{base_name}_{embedding_provider}_{index_mode}_{timestamp}"
 
             # collection = self.client.create_collection(
             #     name=collection_name,
@@ -415,7 +445,11 @@ class VectorStoreService:
             # 创建/获取Collection，指定余弦相似度作为度量方式
             collection = self.client.get_or_create_collection(
                 name=collection_name,
-                metadata={"hnsw:space": "cosine"}
+                metadata={
+                    "hnsw:space": "cosine",
+                    "index_mode": index_mode,
+                    "index_family": "hnsw",
+                }
             )
 
 
@@ -481,7 +515,8 @@ class VectorStoreService:
                     "embedding_provider": embeddings_data.get("embedding_provider", ""),  # 从顶层配置获取
                     "embedding_model": embeddings_data.get("embedding_model", ""),  # 从顶层配置获取
                     "embedding_timestamp": str(emb_metadata.get("embedding_timestamp", "")),
-                    "index_mode": str(config._get_chroma_index_type()),
+                    "index_mode": index_mode,
+                    "index_family": "hnsw",
                     "vector_dimension": vector_dim,
                 }
                 entities.append(entity)
@@ -498,8 +533,12 @@ class VectorStoreService:
 
 
             return {
+                "database": "chroma",
                 "index_size": entity_num,
-                "collection_name": collection_name
+                "collection_name": collection_name,
+                "index_mode": index_mode,
+                "index_family": "hnsw",
+                "index_parameters": {"hnsw:space": "cosine"},
             }
 
         except Exception as e:
@@ -508,6 +547,20 @@ class VectorStoreService:
 
         # finally:
         #     connections.disconnect("default")
+
+    def _index_to_faiss(self, embeddings_data: Dict[str, Any], config: VectorDBConfig, index_mode: str) -> Dict[str, Any]:
+        """! @brief 构建 FAISS Flat、IVF 或 LSH 对比索引。"""
+        normalized_mode = self._normalize_index_mode(index_mode)
+        if normalized_mode not in FAISS_INDEX_MODES:
+            raise ValueError(f"FAISS 不支持索引模式: {normalized_mode}")
+        filename = embeddings_data.get("filename", "")
+        base_name = Path(filename).stem if filename else "doc"
+        base_name = ''.join(lazy_pinyin(base_name, style=Style.NORMAL))
+        base_name = clean_filename(base_name)
+        embedding_provider = embeddings_data.get("embedding_provider", "unknown")
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        collection_name = f"{base_name}_{embedding_provider}_faiss_{normalized_mode}_{timestamp}"
+        return self.faiss_index_service.build_index(embeddings_data, collection_name, normalized_mode)
 
     def list_collections(self, provider: str) -> List[str]:
         """
@@ -519,7 +572,8 @@ class VectorStoreService:
         返回:
             集合名称列表
         """
-        if provider == VectorDBProvider.MILVUS:
+        provider_value = self._provider_value(provider)
+        if provider_value == self._provider_value(VectorDBProvider.MILVUS):
             try:
                 connections.connect(alias="default", uri=MILVUS_CONFIG["uri"])
                 collections = utility.list_collections()
@@ -527,9 +581,12 @@ class VectorStoreService:
             finally:
                 connections.disconnect("default")
 
-        if provider == VectorDBProvider.CHROMA:
+        if provider_value == self._provider_value(VectorDBProvider.CHROMA):
             collections = self.client.list_collections()
             return collections
+
+        if provider_value == self._provider_value(VectorDBProvider.FAISS):
+            return [item["name"] for item in self.faiss_index_service.list_indexes()]
 
         return []
 
@@ -544,19 +601,22 @@ class VectorStoreService:
         返回:
             是否删除成功
         """
-        if provider == VectorDBProvider.MILVUS:
+        provider_value = self._provider_value(provider)
+        if provider_value == self._provider_value(VectorDBProvider.MILVUS):
             try:
                 connections.connect(alias="default", uri=MILVUS_CONFIG["uri"])
                 utility.drop_collection(collection_name)
                 return True
             finally:
                 connections.disconnect("default")
-        elif provider == VectorDBProvider.CHROMA:
+        elif provider_value == self._provider_value(VectorDBProvider.CHROMA):
             try:
                 self.client.delete_collection(name=collection_name)
                 return True
             finally:
                 logger.info("after delete collection")
+        elif provider_value == self._provider_value(VectorDBProvider.FAISS):
+            return self.faiss_index_service.delete_index(collection_name)
         return False
 
     def get_collection_info(self, provider: str, collection_name: str) -> Dict[str, Any]:
@@ -570,7 +630,8 @@ class VectorStoreService:
         返回:
             集合信息字典
         """
-        if provider == VectorDBProvider.MILVUS:
+        provider_value = self._provider_value(provider)
+        if provider_value == self._provider_value(VectorDBProvider.MILVUS):
             try:
                 connections.connect(alias="default", uri=MILVUS_CONFIG["uri"])
                 collection = Collection(collection_name)
@@ -581,7 +642,7 @@ class VectorStoreService:
                 }
             finally:
                 connections.disconnect("default")
-        elif provider == VectorDBProvider.CHROMA:
+        elif provider_value == self._provider_value(VectorDBProvider.CHROMA):
             try:
                 collection=self.client.get_collection(name=collection_name)
                 full_data = collection.get()
@@ -598,5 +659,7 @@ class VectorStoreService:
                 }
             finally:
                 logger.info("after get collection info")
+        elif provider_value == self._provider_value(VectorDBProvider.FAISS):
+            return self.faiss_index_service.get_info(collection_name)
 
         return {}

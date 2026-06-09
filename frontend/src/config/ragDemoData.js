@@ -19,13 +19,6 @@ export const courseQaEvaluationSummary = {
     avg_latency_ms: 0,
     note: '用课程问题检索外部知识，再评估候选答案。',
   },
-  optimized_rag: {
-    answerable: 0,
-    cited: 0,
-    refused: 0,
-    avg_latency_ms: 0,
-    note: '预留外部知识重排后再评估候选答案。',
-  },
 };
 
 export const paperDemoEvaluationSummary = {
@@ -41,13 +34,6 @@ export const paperDemoEvaluationSummary = {
     cited: 26,
     refused: 0,
     avg_latency_ms: 2.4,
-    note: 'dense top-k 检索后直接生成。',
-  },
-  optimized_rag: {
-    answerable: 26,
-    cited: 26,
-    refused: 0,
-    avg_latency_ms: 2.4,
-    note: '预留 query rewrite / rerank / grounded prompt。',
+    note: '检索 top-k 证据后直接生成。',
   },
 };

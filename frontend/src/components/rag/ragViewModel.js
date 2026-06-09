@@ -7,11 +7,10 @@ const FORBIDDEN_KEYS = new Set(['answer_quality']);
 
 export const RAG_MODE_LABELS = {
   llm_only: 'LLM-only',
-  basic_rag: 'Basic RAG',
-  optimized_rag: 'Optimized RAG',
+  basic_rag: 'RAG',
 };
 
-const RAG_MODE_ORDER = ['llm_only', 'basic_rag', 'optimized_rag'];
+const RAG_MODE_ORDER = ['llm_only', 'basic_rag'];
 const LLM_ONLY_EVIDENCE_MARKER_PATTERN = /\s*\[证据\d+\]/g;
 const LLM_ONLY_EVIDENCE_HEADING_PATTERN = /(^|\n)(#{1,6}\s*)(已引用证据|检索证据|引用证据|证据)(\s*$)/gm;
 const LLM_ONLY_EVIDENCE_LABEL_PATTERN = /(^|\n)(\s*(?:[-*]\s*)?)证据(\s*\d*\s*[:：])/g;
@@ -82,8 +81,8 @@ export const createSafeRagAnswerViewModel = (answer) => {
 };
 
 /**
- * @brief 构造三模式评测表行，并固定展示顺序。
- * @param {object} summary 三模式评测摘要。
+ * @brief 构造 LLM-only 与 RAG 评测表行，并固定展示顺序。
+ * @param {object} summary 评测摘要。
  * @returns {Array<object>} 表格行。
  */
 export const buildEvaluationRows = (summary = {}) =>

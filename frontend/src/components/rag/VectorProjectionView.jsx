@@ -196,6 +196,7 @@ const QueryMarker = ({ point }) => (
 const VectorProjectionView = ({
   source = 'embedded-file',
   collectionId = '',
+  collectionProvider = 'chroma',
   queryVector = null,
   retrievedHits = [],
   title = '向量投影视图',
@@ -277,7 +278,7 @@ const VectorProjectionView = ({
     const activeSource = isCollectionMode ? collectionId : selectedDoc;
     if (!activeSource) {
       setProjection(EMPTY_PROJECTION);
-      setStatus(isCollectionMode ? '请选择 Chroma 索引库后查看向量视图。' : '');
+      setStatus(isCollectionMode ? '请选择索引库后查看向量视图。' : '');
       return;
     }
 
@@ -288,7 +289,7 @@ const VectorProjectionView = ({
       setHoveredIndex(null);
       try {
         const endpoint = isCollectionMode
-          ? `${apiBaseUrl}/collections/chroma/${encodeURIComponent(activeSource)}/projection`
+          ? `${apiBaseUrl}/collections/${encodeURIComponent(collectionProvider)}/${encodeURIComponent(activeSource)}/projection`
           : `${apiBaseUrl}/embedded-docs/${encodeURIComponent(activeSource)}/projection`;
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -325,6 +326,7 @@ const VectorProjectionView = ({
     fetchProjection();
   }, [
     collectionId,
+    collectionProvider,
     isCollectionMode,
     overlays,
     requestedProjectionDimensions,

@@ -33,7 +33,7 @@ const DEMO_DATASETS = {
   paper: {
     key: 'paper',
     label: '论文 RAG',
-    chainLabel: '论文 RAG · Chroma 检索 · 百炼生成',
+    chainLabel: '论文 RAG · 向量检索 · 百炼生成',
     collectionLabel: '论文索引库',
     defaultQuery: DEFAULT_PAPER_QUERY,
     defaultTopK: DEFAULT_DOCUMENT_TOP_K,
@@ -46,12 +46,9 @@ const EVALUATION_SUMMARIES = {
 };
 const DEMO_DATASET_LIST = Object.values(DEMO_DATASETS);
 const DEMO_RAG_MODES = [
-  { value: 'basic_rag', label: 'Basic RAG' },
+  { value: 'basic_rag', label: 'RAG' },
   { value: 'llm_only', label: 'LLM-only' },
-  { value: 'optimized_rag', label: 'Optimized RAG' },
 ];
-const NUMERIC_QUERY_PATTERN = /具体数字|数值|多少|表格|表|对比|排名|分数|score|accuracy|\bAC\b|\bF1\b|\bEM\b|%/i;
-const NUMBER_PATTERN = /\d+(?:\.\d+)?%?/g;
 
 const parseHttpError = async (response) => {
   try {
@@ -66,27 +63,6 @@ const getHitPageNumber = (metadata = {}) => {
   const pageNumber = metadata.page ?? metadata.page_number;
   const numericPage = Number(pageNumber);
   return Number.isFinite(numericPage) && numericPage > 0 ? numericPage : null;
-};
-
-const tokenizeEvidenceQuery = (query) => {
-  const latinTokens = query.match(/[A-Za-z][A-Za-z0-9.-]*/g) || [];
-  const splitTokens = latinTokens.flatMap((token) => token.split(/[.-]+/));
-  const normalizedTokens = splitTokens.map((token) => token.toLowerCase()).filter((token) => token.length >= 2);
-  const aliases = [];
-  if (normalizedTokens.includes('overall')) {
-    aliases.push('all');
-  }
-  return [...new Set([...normalizedTokens, ...aliases])];
-};
-
-const buildDocumentSearchQuery = (query, ragMode) => {
-  if (ragMode !== 'optimized_rag' || !NUMERIC_QUERY_PATTERN.test(query)) {
-    return query;
-  }
-  return [
-    query,
-    'table raw values exact scores metric accuracy judged accuracy original numbers all columns',
-  ].join(' ');
 };
 
 const buildCourseQaEvaluationPrompt = (qaItem = {}, ragMode = 'basic_rag') => {
@@ -168,42 +144,12 @@ const getCollectionOptionLabel = (collection = {}) => {
   const modelLabel = [collection.embedding_provider, collection.embedding_model].filter(Boolean).join('/');
   const suffixParts = [
     collection.count,
+    collection.database,
+    collection.index_mode,
     kindLabel,
     modelLabel,
   ].filter((item) => item !== undefined && item !== null && item !== '');
   return `${collection.name}${suffixParts.length ? ` (${suffixParts.join(' · ')})` : ''}`;
-};
-
-const countMatches = (text, pattern) => (text.match(pattern) || []).length;
-
-const hasEvidenceToken = (text, token) => {
-  const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^a-z0-9])${escapedToken}([^a-z0-9]|$)`, 'i').test(text);
-};
-
-const prioritizeDocumentHitsForGeneration = (hits = [], query, ragMode) => {
-  if (ragMode !== 'optimized_rag' || !NUMERIC_QUERY_PATTERN.test(query)) {
-    return hits;
-  }
-
-  const queryTokens = tokenizeEvidenceQuery(query);
-  return [...hits]
-    .map((hit, index) => {
-      const text = String(hit?.text || '');
-      const lowerText = text.toLowerCase();
-      const numberCount = countMatches(text, NUMBER_PATTERN);
-      const tokenOverlap = queryTokens.filter((token) => hasEvidenceToken(lowerText, token)).length;
-      const tableBonus = /\btable\b|表格|表\s*\d+/i.test(text) ? 4 : 0;
-      const score = Number(hit?.score || 0);
-
-      return {
-        hit,
-        index,
-        priority: tokenOverlap * 8 + Math.min(numberCount, 24) + tableBonus + score,
-      };
-    })
-    .sort((left, right) => right.priority - left.priority || left.index - right.index)
-    .map((item) => item.hit);
 };
 
 const normalizeDocumentHits = ({ hits = [], query, collectionId }) => hits
@@ -246,6 +192,7 @@ const buildDocumentRagAnswer = ({
   datasetType = 'paper',
   query,
   collectionId,
+  collectionProvider = '',
   provider,
   model,
   ragMode = 'basic_rag',
@@ -269,6 +216,7 @@ const buildDocumentRagAnswer = ({
       dataset_type: datasetType,
       query,
       collection_id: collectionId,
+      collection_provider: collectionProvider,
       provider,
       model,
       generator: 'search-generate-pipeline',
@@ -284,6 +232,7 @@ const buildNoEvidenceAnswer = ({
   datasetType,
   query,
   collectionId,
+  collectionProvider = '',
   provider,
   model,
   ragMode,
@@ -295,6 +244,7 @@ const buildNoEvidenceAnswer = ({
   datasetType,
   query,
   collectionId,
+  collectionProvider,
   provider,
   model,
   ragMode,
@@ -337,7 +287,7 @@ const Generation = () => {
   const [isRagAnswerRunning, setIsRagAnswerRunning] = useState(false);
   const [ragRequestStatus, setRagRequestStatus] = useState({
     type: 'info',
-    message: '请选择已建立的课程 QA 或论文 Chroma collection，运行后会展示真实检索、生成和向量视图。',
+    message: '请选择已建立的课程 QA 或论文索引库，运行后会展示真实检索、生成和向量视图。',
   });
   const selectedDatasetConfig = DEMO_DATASETS[demoDataset] || DEMO_DATASETS.course_qa;
   const selectedEvaluationSummary = EVALUATION_SUMMARIES[demoDataset] || EVALUATION_SUMMARIES.course_qa;
@@ -358,18 +308,36 @@ const Generation = () => {
   const documentVectorCollectionId = ['course_qa', 'paper', 'document'].includes(safeRagAnswer.metadata.dataset_type)
     ? safeRagAnswer.metadata.collection_id
     : pipelineConfig.collectionId;
+  const selectedVectorCollection = availableCollections.find(
+    (collection) => collection.id === documentVectorCollectionId
+  );
+  const documentVectorProvider = safeRagAnswer.metadata.collection_provider
+    || selectedVectorCollection?.database
+    || 'chroma';
   const showDocumentVectorView = !isLlmOnlyMode
     && Boolean(documentVectorCollectionId);
 
   /** @brief 加载当前可用向量集合，供当前 RAG 入口选择数据源。 */
   const fetchAvailableCollections = useCallback(async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/collections?provider=chroma`);
-      if (!response.ok) {
-        throw new Error(await parseHttpError(response));
-      }
-      const payload = await response.json();
-      const collections = Array.isArray(payload.collections) ? payload.collections : [];
+      const providerIds = ['chroma', 'faiss'];
+      const payloads = await Promise.all(providerIds.map(async (providerId) => {
+        const response = await fetch(`${apiBaseUrl}/collections?provider=${providerId}`);
+        if (!response.ok) {
+          throw new Error(await parseHttpError(response));
+        }
+        const payload = await response.json();
+        return {
+          providerId,
+          collections: Array.isArray(payload.collections) ? payload.collections : [],
+        };
+      }));
+      const collections = payloads.flatMap(({ providerId, collections: providerCollections }) => (
+        providerCollections.map((collection) => ({
+          ...collection,
+          database: collection.database || providerId,
+        }))
+      ));
       setAvailableCollections(collections);
       setPipelineConfig((currentConfig) => {
         if (collections.some((collection) => collection.id === currentConfig.collectionId)) {
@@ -529,7 +497,7 @@ const Generation = () => {
     if (ragMode !== 'llm_only' && !collectionId) {
       setRagRequestStatus({
         type: 'error',
-        message: `请先在“${selectedDatasetConfig.collectionLabel}”中选择已经建立的 Chroma collection。`,
+        message: `请先在“${selectedDatasetConfig.collectionLabel}”中选择已经建立的索引库。`,
       });
       return;
     }
@@ -546,6 +514,7 @@ const Generation = () => {
       return;
     }
     const selectedCollection = availableCollections.find((collection) => collection.id === collectionId);
+    const collectionProvider = selectedCollection?.database || 'chroma';
     if (demoDataset === 'course_qa' && ragMode !== 'llm_only' && selectedCollection?.dataset_type === 'course_qa') {
       setRagRequestStatus({
         type: 'error',
@@ -596,6 +565,7 @@ const Generation = () => {
           datasetType: selectedDatasetConfig.datasetType,
           query: trimmedQuery,
           collectionId,
+          collectionProvider,
           provider,
           model,
           ragMode,
@@ -615,6 +585,7 @@ const Generation = () => {
           datasetType: selectedDatasetConfig.datasetType,
           query: trimmedQuery,
           collectionId,
+          collectionProvider,
           provider,
           model,
           ragMode,
@@ -634,16 +605,12 @@ const Generation = () => {
       return;
     }
 
-    const searchQuery = demoDataset === 'paper'
-      ? buildDocumentSearchQuery(retrievalQuery, ragMode)
-      : retrievalQuery;
+    const searchQuery = retrievalQuery;
     const searchStartedAt = performance.now();
     setIsRagAnswerRunning(true);
     setRagRequestStatus({
       type: 'info',
-      message: ragMode === 'optimized_rag'
-        ? `正在以 Optimized RAG 模式检索并重排${selectedEvidenceLabel}证据...`
-        : `正在以 Basic RAG 模式检索${selectedEvidenceLabel}向量库...`,
+        message: `正在以 RAG 模式检索${selectedEvidenceLabel}向量库...`,
     });
 
     try {
@@ -671,13 +638,11 @@ const Generation = () => {
       const rawHits = searchPayload.results?.results || [];
       const queryEmbedding = searchPayload.results?.query_embedding || null;
       const scoreAlgorithm = searchPayload.results?.score_algorithm || {
-        name: 'Chroma HNSW cosine',
-        formula: 'score = 1 - Chroma distance',
-        note: 'Chroma distance 越小越相近；前端展示的 score 越大越相关。',
+        name: '向量检索相似度',
+        formula: 'score = normalized relevance score',
+        note: '不同索引后端统一展示为越大越相关；具体算法以本次检索返回为准。',
       };
-      const prioritizedRawHits = demoDataset === 'paper'
-        ? prioritizeDocumentHitsForGeneration(rawHits, trimmedQuery, ragMode)
-        : rawHits;
+      const prioritizedRawHits = rawHits;
       const searchLatencyMs = performance.now() - searchStartedAt;
       const normalizedHits = normalizeDocumentHits({
         query: trimmedQuery,
@@ -700,9 +665,7 @@ const Generation = () => {
             best_score: normalizedHits.length > 0
               ? Math.max(...normalizedHits.map((hit) => Number(hit.score || 0)))
               : null,
-            evidence_order: demoDataset === 'paper' && ragMode === 'optimized_rag'
-              ? 'numeric-evidence-priority'
-              : 'score',
+            evidence_order: 'score',
           },
           artifacts: {},
         },
@@ -713,6 +676,7 @@ const Generation = () => {
           datasetType: selectedDatasetConfig.datasetType,
           query: trimmedQuery,
           collectionId,
+          collectionProvider,
           provider,
           model,
           ragMode,
@@ -763,6 +727,7 @@ const Generation = () => {
           datasetType: selectedDatasetConfig.datasetType,
           query: trimmedQuery,
           collectionId,
+          collectionProvider,
           provider,
           model,
           ragMode,
@@ -791,6 +756,7 @@ const Generation = () => {
         datasetType: selectedDatasetConfig.datasetType,
         query: trimmedQuery,
         collectionId,
+        collectionProvider,
         provider,
         model,
         ragMode,
@@ -816,6 +782,7 @@ const Generation = () => {
         datasetType: selectedDatasetConfig.datasetType,
         query: trimmedQuery,
         collectionId,
+        collectionProvider,
         provider,
         model,
         ragMode,
@@ -1054,9 +1021,9 @@ const Generation = () => {
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-slate-500">
-                    {demoDataset === 'course_qa'
+                    {pipelineConfig.ragMode === 'llm_only'
                       ? 'LLM-only 不检索外部知识。'
-                      : 'Optimized 适合数字/表格题。'}
+                      : 'RAG 使用检索到的证据回答或排序。'}
                   </p>
                 </div>
                 {!isLlmOnlyMode && (
@@ -1171,6 +1138,7 @@ const Generation = () => {
             <VectorProjectionView
               source="collection"
               collectionId={documentVectorCollectionId}
+              collectionProvider={documentVectorProvider}
               queryVector={safeRagAnswer.metadata.query_embedding}
               retrievedHits={safeRagAnswer.retrievedHits}
               title="07 检索向量视图"
@@ -1181,7 +1149,7 @@ const Generation = () => {
           <EvaluationDashboard
             summary={selectedEvaluationSummary}
             status={evaluationStatus}
-            title={demoDataset === 'course_qa' ? '课程 QA 答案评估' : `${selectedDatasetConfig.label} 三模式评测`}
+            title={demoDataset === 'course_qa' ? '课程 QA 答案评估' : `${selectedDatasetConfig.label} 对照评测`}
             description={demoDataset === 'paper' ? 'LLM-Wiki 论文评测摘要。' : '题目候选答案与外部知识检索链路摘要。'}
           />
         </div>
